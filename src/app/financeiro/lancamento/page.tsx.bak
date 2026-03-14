@@ -1,0 +1,1401 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
+/* eslint-disable @typescript-eslint/ban-ts-comment */
+"use client"
+
+import React, { useState, useEffect, useMemo } from "react"
+import { useSearchParams, useRouter } from "next/navigation"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import {
+  Loader2,
+  Plus,
+  Search,
+  XCircle,
+  Pencil,
+  Trash2,
+  FileText,
+  CheckCircle,
+  CircleXIcon as XCircle2,
+  RefreshCw,
+  RepeatIcon,
+  ChevronDown,
+  ChevronRight,
+} from "lucide-react"
+import { MainHeader } from "@/components/main-header"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Pagination } from "@/components/ui/pagination"
+import { usePagination } from "@/app/hooks/use-pagination"
+import { SortableTableHead } from "@/components/ui/sortable-table-head"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { Badge } from "@/components/ui/badge"
+import { TransactionModal } from "@/components/transaction-modal"
+import { LancamentoFilters } from "@/components/lancamento-filter"
+import { RecurringTransactionModal } from "@/components/recurring-transaction-modal"
+import {
+  getRelatedRecurringTransactions,
+} from "@/app/services/financial-transaction-service"
+import {
+  getAllLancamentos,
+  deleteLancamento,
+  baixarLancamento,
+  getTiposLancamento,
+  getLancamentosByRecurrenceId
+} from "@/app/services/lancamento-service"
+import { getAllPeople } from "@/app/services/person-api-service"
+import { getAllBusinessUnits } from "@/app/services/business-unit-api-service"
+import { getAllCashAccounts } from "@/app/services/cash-account-api-service"
+import type { Transaction } from "@/app/services/transaction-service"
+import type { FinancialTransaction, Lancamento, LancamentoFilter, ApiTransactionType, Person, BusinessUnit, CashAccount } from "@/types/types"
+import { formatCurrency, getStatusColor, getTypeColor } from "@/lib/utils"
+import customToast from "@/components/ui/custom-toast"
+import { motion } from "framer-motion"
+import { format, isValid, parseISO } from "date-fns"
+import { ptBR } from "date-fns/locale"
+
+// Adicione estas linhas após a importação de useState e useEffect
+import { Checkbox } from "@/components/ui/checkbox"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+
+// Update the imports to include the new components
+import { PaymentModal } from "@/components/payment-modal"
+import { CancelPaymentModal } from "@/components/cancel-payment-modal"
+import { TransactionDetailsModal } from "@/components/transaction-details-modal"
+import { CashAccountsView } from "@/components/cash-accounts-view"
+
+// Função para formatar datas corretamente
+const formatDate = (dateString: string | Date | undefined | null): string => {
+  if (!dateString) return "-"
+
+  try {
+    let date: Date
+
+    // Handle Firestore Timestamp objects
+    if (typeof dateString === "object" && dateString !== null && "seconds" in dateString) {
+      // @ts-ignore - Firestore timestamp object
+      date = new Date(dateString.seconds * 1000)
+    } else if (dateString instanceof Date) {
+      date = dateString
+    } else if (typeof dateString === "string") {
+      // Tentar converter string para data
+      date = parseISO(dateString)
+    } else {
+      return "-"
+    }
+
+    // Check if date is valid
+    if (!isValid(date)) {
+      return "-"
+    }
+
+    // Formatar no padrão brasileiro: dd/MM/yyyy
+    return format(date, "dd/MM/yyyy", { locale: ptBR })
+  } catch (error) {
+    console.error("Error formatting date:", error)
+    return "-"
+  }
+}
+
+// Função para gerar código de competência (YYYYMM) a partir da data
+const generateCompetenceCode = (dateString: string | Date | undefined | null): string => {
+  if (!dateString) return "-"
+
+  try {
+    let date: Date
+
+    // Handle Firestore Timestamp objects
+    if (typeof dateString === "object" && dateString !== null && "seconds" in dateString) {
+      // @ts-ignore - Firestore timestamp object
+      date = new Date(dateString.seconds * 1000)
+    } else if (dateString instanceof Date) {
+      date = dateString
+    } else if (typeof dateString === "string") {
+      // Tentar converter string para data
+      date = parseISO(dateString)
+    } else {
+      return "-"
+    }
+
+    // Check if date is valid
+    if (!isValid(date)) {
+      return "-"
+    }
+
+    // Formatar como YYYYMM
+    const year = date.getFullYear()
+    const month = date.getMonth() + 1 // getMonth() retorna 0-11
+    return `${year}${month.toString().padStart(2, "0")}`
+  } catch (error) {
+    console.error("Error generating competence code:", error)
+    return "-"
+  }
+}
+
+export default function FinancialTransactionsPage() {
+  const searchParams = useSearchParams()
+  const router = useRouter()
+
+  const [transactions, setTransactions] = useState<FinancialTransaction[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+  const [currentTransaction, setCurrentTransaction] = useState<FinancialTransaction | undefined>(undefined)
+  const [currentTransactionForModal, setCurrentTransactionForModal] = useState<Transaction | null>(null)
+  const [searchTerm, setSearchTerm] = useState(searchParams.get('search') || "")
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState(searchParams.get('search') || "")
+  const [isModalOpen, setIsModalOpen] = useState(false)
+  // Replace the isPaymentDateDialogOpen state with the new modal states
+  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false)
+  const [isCancelPaymentModalOpen, setIsCancelPaymentModalOpen] = useState(false)
+  const [isTransactionDetailsModalOpen, setIsTransactionDetailsModalOpen] = useState(false)
+  const [currentFilter, setCurrentFilter] = useState<LancamentoFilter>(() => {
+    // Inicializar filtros a partir da URL
+    const filters: LancamentoFilter = {
+      page: Number(searchParams.get('page')) || 1,
+      // Não definir limit para usar o padrão da API (trazer todos)
+    }
+
+    // Adicionar outros filtros da URL
+    const search = searchParams.get('search')
+    if (search) filters.search = search
+
+    const id_tipo_lancamento = searchParams.get('id_tipo_lancamento')
+    if (id_tipo_lancamento) filters.id_tipo_lancamento = Number(id_tipo_lancamento)
+
+    const id_conta_caixa = searchParams.get('id_conta_caixa')
+    if (id_conta_caixa) filters.id_conta_caixa = Number(id_conta_caixa)
+
+    const id_pessoa = searchParams.get('id_pessoa')
+    if (id_pessoa) filters.id_pessoa = Number(id_pessoa)
+
+    const id_un_negocio = searchParams.get('id_un_negocio')
+    if (id_un_negocio) filters.id_un_negocio = Number(id_un_negocio)
+
+    const status = searchParams.get('status')
+    if (status) filters.status = status as 'pago' | 'pendente'
+
+    const natureza = searchParams.get('natureza')
+    if (natureza) filters.natureza = natureza as 'credito' | 'debito'
+
+    const data_inicio = searchParams.get('data_inicio')
+    if (data_inicio) filters.data_inicio = data_inicio
+
+    const data_fim = searchParams.get('data_fim')
+    if (data_fim) filters.data_fim = data_fim
+
+    const competencia = searchParams.get('competencia')
+    if (competencia) filters.competencia = Number(competencia)
+
+    return filters
+  })
+  const [isRecurringModalOpen, setIsRecurringModalOpen] = useState(false)
+  const [relatedTransactions, setRelatedTransactions] = useState<FinancialTransaction[]>([])
+  const [isFilterOpen, setIsFilterOpen] = useState(false)
+  const [groupedByRecurrence, setGroupedByRecurrence] = useState(false)
+  const [expandedGroups, setExpandedGroups] = useState<Set<number>>(new Set())
+
+  // Adicione estes estados após a declaração dos outros estados
+  const [selectedTransactions, setSelectedTransactions] = useState<string[]>([])
+  const [selectAll, setSelectAll] = useState(false)
+  const [isDeleteManyDialogOpen, setIsDeleteManyDialogOpen] = useState(false)
+
+  // Debounce para searchTerm
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm)
+    }, 500) // 500ms de delay
+
+    return () => clearTimeout(timer)
+  }, [searchTerm])
+
+  // Função para atualizar a URL com os filtros
+  const updateURLWithFilters = (filters: LancamentoFilter) => {
+    const params = new URLSearchParams()
+
+    Object.entries(filters).forEach(([key, value]) => {
+      // Ignorar o campo 'limit' pois será tratado pelo serviço como limit=
+      if (key === 'limit') return
+
+      if (value !== undefined && value !== null && value !== '') {
+        params.set(key, String(value))
+      }
+    })
+
+    const queryString = params.toString()
+    router.push(`/financeiro/lancamento${queryString ? '?' + queryString : ''}`, { scroll: false })
+  }
+
+  // Pagination hook
+  const pagination = usePagination({
+    defaultItemsPerPage: 10,
+    defaultSortBy: "dueDate",
+    defaultSortOrder: "desc",
+  })
+
+  // Filter and sort transactions
+  const filteredAndSortedTransactions = useMemo(() => {
+    let filtered = transactions
+
+    if (searchTerm.trim()) {
+      const searchLower = searchTerm.toLowerCase()
+      filtered = transactions.filter(
+        (transaction) =>
+          transaction.code?.toLowerCase().includes(searchLower) ||
+          transaction.description?.toLowerCase().includes(searchLower) ||
+          transaction.clientName?.toLowerCase().includes(searchLower) ||
+          transaction.transactionTypeName?.toLowerCase().includes(searchLower)
+      )
+    }
+
+    if (!pagination.sortBy) return filtered
+
+    return [...filtered].sort((a, b) => {
+      const aValue = (a as unknown as Record<string, unknown>)[pagination.sortBy] ?? ""
+      const bValue = (b as unknown as Record<string, unknown>)[pagination.sortBy] ?? ""
+
+      if (aValue === null || aValue === undefined) return 1
+      if (bValue === null || bValue === undefined) return -1
+
+      let comparison = 0
+      if (typeof aValue === "string" && typeof bValue === "string") {
+        comparison = aValue.toLowerCase().localeCompare(bValue.toLowerCase())
+      } else if (typeof aValue === "number" && typeof bValue === "number") {
+        comparison = aValue - bValue
+      } else if (aValue instanceof Date && bValue instanceof Date) {
+        comparison = aValue.getTime() - bValue.getTime()
+      } else {
+        comparison = String(aValue).localeCompare(String(bValue))
+      }
+
+      return pagination.sortOrder === "asc" ? comparison : -comparison
+    })
+  }, [transactions, searchTerm, pagination.sortBy, pagination.sortOrder])
+
+  const { paginatedData: paginatedTransactions, totalPages } = useMemo(() => {
+    return pagination.paginateData(filteredAndSortedTransactions)
+  }, [filteredAndSortedTransactions, pagination])
+
+  const handleSelectTransaction = (id: string | undefined) => {
+    if (!id) return
+
+    setSelectedTransactions((prev) => {
+      if (prev.includes(id)) {
+        return prev.filter((transactionId) => transactionId !== id)
+      } else {
+        return [...prev, id]
+      }
+    })
+  }
+
+  const handleSelectAll = () => {
+    if (selectAll) {
+      setSelectedTransactions([])
+    } else {
+      const allIds = filteredAndSortedTransactions
+        .filter((transaction) => transaction.id && transaction.status !== "pago")
+        .map((transaction) => transaction.id as string)
+      setSelectedTransactions(allIds)
+    }
+    setSelectAll(!selectAll)
+  }
+
+  const handleDeleteSelected = async () => {
+    setIsDeleteManyDialogOpen(true)
+  }
+
+  const confirmDeleteSelected = async () => {
+    setLoading(true)
+    try {
+      let successCount = 0
+      let errorCount = 0
+
+      for (const id of selectedTransactions) {
+        try {
+          await deleteLancamento(Number(id))
+          successCount++
+        } catch (err) {
+          console.error(`Erro ao excluir lançamento ${id}:`, err)
+          errorCount++
+        }
+      }
+
+      await fetchTransactions()
+
+      if (successCount > 0) {
+        customToast.success(`${successCount} lançamento(s) excluído(s) com sucesso!`, { position: "bottom-right" })
+      }
+
+      if (errorCount > 0) {
+        customToast.error(`Não foi possível excluir ${errorCount} lançamento(s)`, { position: "bottom-right" })
+      }
+    } catch (err) {
+      console.error("Erro ao excluir lançamentos:", err)
+      customToast.error("Erro ao excluir lançamentos", { position: "bottom-right" })
+    } finally {
+      setLoading(false)
+      setIsDeleteManyDialogOpen(false)
+      setSelectedTransactions([])
+      setSelectAll(false)
+    }
+  }
+
+
+  // Modifique a função fetchTransactions para limpar as seleções
+  const fetchTransactions = async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      // Buscar da nova API de lançamentos e dados auxiliares em paralelo usando os filtros atuais
+      const [response, tiposLancamento, pessoas, unidadesNegocio, contasCaixa] = await Promise.all([
+        getAllLancamentos(currentFilter),
+        getTiposLancamento(),
+        getAllPeople(),
+        getAllBusinessUnits(),
+        getAllCashAccounts(),
+      ])
+
+      // Verificar se response.data existe e é um array
+      if (!response.data || !Array.isArray(response.data)) {
+        console.error('❌ Resposta inválida da API:', response)
+        setError("Formato de resposta inválido da API")
+        return
+      }
+
+      // Criar mapas para lookup rápido
+      const tiposMap = new Map(tiposLancamento.map(t => [t.id_tp_lcto, t.nome]))
+      const pessoasMap = new Map(pessoas.map(p => [p.id, p.name]))
+      const unidadesMap = new Map(unidadesNegocio.map(u => [u.id, u.name]))
+      const contasMap = new Map(contasCaixa.map(c => [c.id, c.account]))
+
+      // Converter lançamentos da API para o formato FinancialTransaction
+      const convertedData: FinancialTransaction[] = response.data.map((lanc: Lancamento) => {
+        return {
+          id: String(lanc.id_lancamento),
+          code: String(lanc.id_lancamento),
+          date: new Date(lanc.data_lancamento),
+          dueDate: new Date(lanc.data_vencimento),
+          paymentDate: lanc.data_pagamento ? new Date(lanc.data_pagamento) : null,
+          description: lanc.descricao,
+          value: Number(lanc.valor),
+          paidValue: Number(lanc.valor),
+          type: lanc.natureza === 'credito' ? 'entrada' : 'saida',
+          status: lanc.data_pagamento ? 'pago' : 'pendente',
+          transactionTypeId: String(lanc.id_tipo_lancamento),
+          transactionTypeName: tiposMap.get(lanc.id_tipo_lancamento) || `Tipo ${lanc.id_tipo_lancamento}`,
+          cashAccountId: lanc.id_conta_caixa ? String(lanc.id_conta_caixa) : '',
+          cashAccountName: lanc.id_conta_caixa ? (contasMap.get(String(lanc.id_conta_caixa)) || `Conta ${lanc.id_conta_caixa}`) : 'Sem conta',
+          clientId: String(lanc.id_pessoa),
+          clientName: pessoasMap.get(String(lanc.id_pessoa)) || `Pessoa ${lanc.id_pessoa}`,
+          businessUnitId: String(lanc.id_un_negocio),
+          businessUnitName: unidadesMap.get(String(lanc.id_un_negocio)) || `UN ${lanc.id_un_negocio}`,
+          document: lanc.numero_documento || undefined,
+          competence: lanc.competencia ? String(lanc.competencia) : undefined,
+          // Informações de recorrência (somente pelo ID)
+          isRecurrent: lanc.id_recorrencia ? true : false,
+          recurrenceId: lanc.id_recorrencia || null,
+        }
+      })
+
+      setTransactions(convertedData)
+      setSelectedTransactions([]) // Limpar seleções ao carregar novos dados
+      setSelectAll(false)
+    } catch (err) {
+      console.error("❌ Erro ao carregar lançamentos:", err)
+      setError("Não foi possível carregar os lançamentos. Tente novamente.")
+      customToast.error("Erro ao carregar lançamentos", { position: "bottom-right" })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const refreshData = async () => {
+    await fetchTransactions()
+  }
+
+  useEffect(() => {
+    fetchTransactions()
+  }, [])
+
+  const handleAddTransaction = () => {
+    setCurrentTransactionForModal(null)
+    setIsModalOpen(true)
+  }
+
+  const handleEditTransaction = async (transaction: FinancialTransaction) => {
+    // Converter FinancialTransaction para Transaction para o modal
+    const transactionForModal: Transaction = {
+      id_lancamento: Number(transaction.id),
+      id_tipo_lancamento: Number(transaction.transactionTypeId),
+      id_conta_caixa: transaction.cashAccountId && transaction.cashAccountId !== '' ? Number(transaction.cashAccountId) : null,
+      id_pessoa: Number(transaction.clientId),
+      id_un_negocio: Number(transaction.businessUnitId),
+      id_porto: null,
+      id_navio: null,
+      numero_documento: transaction.document || null,
+      descricao: transaction.description,
+      valor: transaction.value.toString(),
+      data_lancamento: format(transaction.date, 'yyyy-MM-dd HH:mm:ss'),
+      data_vencimento: format(transaction.dueDate, 'yyyy-MM-dd HH:mm:ss'),
+      data_pagamento: transaction.paymentDate ? format(transaction.paymentDate, 'yyyy-MM-dd HH:mm:ss') : null,
+      observacoes: null,
+      anexos: null,
+      status: transaction.status === 'pago',
+      natureza: transaction.type === 'entrada' ? 'credito' : 'debito',
+      competencia: transaction.competence ? Number(transaction.competence) : 0,
+      id_recorrencia: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }
+
+    setCurrentTransactionForModal(transactionForModal)
+    setIsModalOpen(true)
+  }
+
+  const handleDeleteTransaction = (transaction: FinancialTransaction) => {
+    setCurrentTransaction(transaction)
+    setIsDeleteDialogOpen(true)
+  }
+
+  const handleCreateRecurringTransaction = (transaction: FinancialTransaction) => {
+    setCurrentTransaction(transaction)
+    setIsRecurringModalOpen(true)
+  }
+
+  const confirmDelete = async () => {
+    if (!currentTransaction?.id) return
+
+    setLoading(true)
+    try {
+      await deleteLancamento(Number(currentTransaction.id))
+      await fetchTransactions()
+      customToast.success("Lançamento excluído com sucesso!", { position: "bottom-right" })
+    } catch (err) {
+      console.error("Erro ao excluir lançamento:", err)
+      customToast.error("Erro ao excluir lançamento", { position: "bottom-right" })
+    } finally {
+      setLoading(false)
+      setIsDeleteDialogOpen(false)
+    }
+  }
+
+  // useEffect para buscar quando debouncedSearchTerm mudar
+  useEffect(() => {
+    const searchWithDebounce = async () => {
+      // Atualizar filtro com o termo de busca
+      const newFilter: LancamentoFilter = {
+        ...currentFilter,
+        search: debouncedSearchTerm || undefined,
+      }
+
+      // Atualizar estado do filtro
+      setCurrentFilter(newFilter)
+
+      // Atualizar URL
+      updateURLWithFilters(newFilter)
+
+      // Buscar com o novo filtro
+      setLoading(true)
+      setError(null)
+      try {
+        const [response, tiposLancamento, pessoas, unidadesNegocio, contasCaixa] = await Promise.all([
+          getAllLancamentos(newFilter),
+          getTiposLancamento(),
+          getAllPeople(),
+          getAllBusinessUnits(),
+          getAllCashAccounts(),
+        ])
+
+        if (!response.data || !Array.isArray(response.data)) {
+          console.error('❌ Resposta inválida da API:', response)
+          setError("Erro ao carregar lançamentos")
+          setTransactions([])
+          return
+        }
+
+        // Criar mapas para lookup rápido
+        const tiposMap = new Map(tiposLancamento.map(t => [t.id_tp_lcto, t.nome]))
+        const pessoasMap = new Map(pessoas.map(p => [p.id, p.name]))
+        const unidadesMap = new Map(unidadesNegocio.map(u => [u.id, u.name]))
+        const contasMap = new Map(contasCaixa.map(c => [c.id, c.account]))
+
+        // Converter lançamentos da API
+        const convertedData: FinancialTransaction[] = response.data.map((lanc: Lancamento) => {
+          return {
+            id: String(lanc.id_lancamento),
+            code: String(lanc.id_lancamento),
+            date: new Date(lanc.data_lancamento),
+            dueDate: new Date(lanc.data_vencimento),
+            paymentDate: lanc.data_pagamento ? new Date(lanc.data_pagamento) : null,
+            description: lanc.descricao,
+            value: Number(lanc.valor),
+            paidValue: Number(lanc.valor),
+            type: lanc.natureza === 'credito' ? 'entrada' : 'saida',
+            status: lanc.data_pagamento ? 'pago' : 'pendente',
+            transactionTypeId: String(lanc.id_tipo_lancamento),
+            transactionTypeName: tiposMap.get(lanc.id_tipo_lancamento) || `Tipo ${lanc.id_tipo_lancamento}`,
+            cashAccountId: lanc.id_conta_caixa ? String(lanc.id_conta_caixa) : '',
+            cashAccountName: lanc.id_conta_caixa ? (contasMap.get(String(lanc.id_conta_caixa)) || `Conta ${lanc.id_conta_caixa}`) : 'Sem conta',
+            clientId: String(lanc.id_pessoa),
+            clientName: pessoasMap.get(String(lanc.id_pessoa)) || `Pessoa ${lanc.id_pessoa}`,
+            businessUnitId: String(lanc.id_un_negocio),
+            businessUnitName: unidadesMap.get(String(lanc.id_un_negocio)) || `UN ${lanc.id_un_negocio}`,
+            document: lanc.numero_documento || undefined,
+            competence: lanc.competencia ? String(lanc.competencia) : undefined,
+            // Informações de recorrência (somente pelo ID)
+            isRecurrent: lanc.id_recorrencia ? true : false,
+            recurrenceId: lanc.id_recorrencia || null,
+          }
+        })
+
+        setTransactions(convertedData)
+        setSelectedTransactions([])
+        setSelectAll(false)
+      } catch (err) {
+        console.error("Erro ao carregar lançamentos:", err)
+        setError("Não foi possível carregar os lançamentos. Tente novamente.")
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    searchWithDebounce()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedSearchTerm])
+
+  const clearSearch = () => {
+    setSearchTerm("")
+    setDebouncedSearchTerm("")
+  }
+
+  const handleFilter = async (filter: LancamentoFilter) => {
+    setLoading(true)
+    try {
+      setCurrentFilter(filter)
+      updateURLWithFilters(filter)
+
+      // Buscar lançamentos e dados auxiliares
+      const [response, tiposLancamento, pessoas, unidadesNegocio, contasCaixa] = await Promise.all([
+        getAllLancamentos(filter),
+        getTiposLancamento(),
+        getAllPeople(),
+        getAllBusinessUnits(),
+        getAllCashAccounts(),
+      ])
+
+      // Criar mapas para lookup rápido
+      const tiposMap = new Map(tiposLancamento.map(t => [t.id_tp_lcto, t.nome]))
+      const pessoasMap = new Map(pessoas.map(p => [p.id, p.name]))
+      const unidadesMap = new Map(unidadesNegocio.map(u => [u.id, u.name]))
+      const contasMap = new Map(contasCaixa.map(c => [c.id, c.account]))
+
+      // Converter lançamentos da API para o formato FinancialTransaction
+      const convertedData: FinancialTransaction[] = response.data.map((lanc: Lancamento) => {
+        return {
+          id: String(lanc.id_lancamento),
+          code: String(lanc.id_lancamento),
+          date: new Date(lanc.data_lancamento),
+          dueDate: new Date(lanc.data_vencimento),
+          paymentDate: lanc.data_pagamento ? new Date(lanc.data_pagamento) : null,
+          description: lanc.descricao,
+          value: Number(lanc.valor),
+          paidValue: Number(lanc.valor),
+          type: lanc.natureza === 'credito' ? 'entrada' : 'saida',
+          status: lanc.data_pagamento ? 'pago' : 'pendente',
+          transactionTypeId: String(lanc.id_tipo_lancamento),
+          transactionTypeName: tiposMap.get(lanc.id_tipo_lancamento) || `Tipo ${lanc.id_tipo_lancamento}`,
+          cashAccountId: lanc.id_conta_caixa ? String(lanc.id_conta_caixa) : '',
+          cashAccountName: lanc.id_conta_caixa ? (contasMap.get(String(lanc.id_conta_caixa)) || `Conta ${lanc.id_conta_caixa}`) : 'Sem conta',
+          clientId: String(lanc.id_pessoa),
+          clientName: pessoasMap.get(String(lanc.id_pessoa)) || `Pessoa ${lanc.id_pessoa}`,
+          businessUnitId: String(lanc.id_un_negocio),
+          businessUnitName: unidadesMap.get(String(lanc.id_un_negocio)) || `UN ${lanc.id_un_negocio}`,
+          document: lanc.numero_documento || undefined,
+          competence: lanc.competencia ? String(lanc.competencia) : undefined,
+          // Informações de recorrência (somente pelo ID)
+          isRecurrent: lanc.id_recorrencia ? true : false,
+          recurrenceId: lanc.id_recorrencia || null,
+        }
+      })
+
+      setTransactions(convertedData)
+    } catch (err) {
+      console.error("Erro ao aplicar filtros:", err)
+      customToast.error("Erro ao aplicar filtros", { position: "bottom-right" })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Replace the handleMarkAsPaid function
+  const handleMarkAsPaid = (transaction: FinancialTransaction) => {
+    setCurrentTransaction(transaction)
+    setIsPaymentModalOpen(true)
+  }
+
+  // Replace the handleMarkAsCanceled function
+  const handleMarkAsCanceled = async (transaction: FinancialTransaction) => {
+    setCurrentTransaction(transaction)
+    setIsCancelPaymentModalOpen(true)
+  }
+
+  // Add a new function to view transaction details
+  const handleViewTransactionDetails = async (transaction: FinancialTransaction) => {
+    setCurrentTransaction(transaction)
+
+    try {
+      // Buscar transações relacionadas por ID de recorrência
+      if (transaction.isRecurrent && transaction.recurrenceId) {
+        const related = await getLancamentosByRecurrenceId(transaction.recurrenceId)
+        // Converter Lancamento[] para FinancialTransaction[]
+        const convertedRelated = related.map((lanc) => ({
+          id: String(lanc.id_lancamento),
+          description: lanc.descricao,
+          value: Number(lanc.valor),
+          date: new Date(lanc.data_lancamento),
+          dueDate: new Date(lanc.data_vencimento),
+          paymentDate: lanc.data_pagamento ? new Date(lanc.data_pagamento) : null,
+          status: lanc.data_pagamento ? 'pago' : 'pendente',
+          recurrenceId: lanc.id_recorrencia || null,
+        }))
+        setRelatedTransactions(convertedRelated as FinancialTransaction[])
+      } else {
+        setRelatedTransactions([])
+      }
+    } catch (error) {
+      console.error("Erro ao buscar transações relacionadas:", error)
+      setRelatedTransactions([])
+    }
+
+    setIsTransactionDetailsModalOpen(true)
+  }
+
+  const handleViewRecurrenceDetails = async (transaction: FinancialTransaction) => {
+    if (!transaction.isRecurrent || !transaction.recurrenceId) {
+      customToast.error("Esta transação não faz parte de uma recorrência", { position: "bottom-right" })
+      return
+    }
+
+    setCurrentTransaction(transaction)
+    try {
+      console.log('🔍 Buscando recorrência para ID:', transaction.recurrenceId)
+      // Buscar todos os lançamentos da recorrência
+      const related = await getLancamentosByRecurrenceId(transaction.recurrenceId)
+      console.log('📝 Lançamentos encontrados:', related.length, related)
+      
+      // Converter para FinancialTransaction
+      const convertedRelated = related.map((lanc) => ({
+        id: String(lanc.id_lancamento),
+        description: lanc.descricao,
+        value: Number(lanc.valor),
+        date: new Date(lanc.data_lancamento),
+        dueDate: new Date(lanc.data_vencimento),
+        paymentDate: lanc.data_pagamento ? new Date(lanc.data_pagamento) : null,
+        status: lanc.data_pagamento ? 'pago' : 'pendente',
+        recurrenceId: lanc.id_recorrencia || null,
+        type: lanc.natureza === 'credito' ? 'entrada' : 'saida',
+        code: String(lanc.id_lancamento),
+        clientName: transaction.clientName,
+        businessUnitName: transaction.businessUnitName,
+        transactionTypeName: transaction.transactionTypeName,
+        isRecurrent: true,
+      }))
+
+      setRelatedTransactions(convertedRelated as FinancialTransaction[])
+      
+      customToast.success(`Encontrados ${related.length} lançamentos na recorrência`, { 
+        position: "bottom-right" 
+      })
+    } catch (error) {
+      console.error("Erro ao buscar lançamentos da recorrência:", error)
+      customToast.error("Erro ao carregar lançamentos da recorrência", { position: "bottom-right" })
+      setRelatedTransactions([])
+    }
+    
+    setIsTransactionDetailsModalOpen(true)
+  }
+
+  // Função para agrupar transações por recorrência
+  const groupTransactionsByRecurrence = (transactions: FinancialTransaction[]) => {
+    const recurrentGroups = new Map<number, FinancialTransaction[]>()
+    const nonRecurrentTransactions: FinancialTransaction[] = []
+
+    transactions.forEach(transaction => {
+      if (transaction.isRecurrent && transaction.recurrenceId) {
+        const existingGroup = recurrentGroups.get(transaction.recurrenceId)
+        if (existingGroup) {
+          existingGroup.push(transaction)
+        } else {
+          recurrentGroups.set(transaction.recurrenceId, [transaction])
+        }
+      } else {
+        nonRecurrentTransactions.push(transaction)
+      }
+    })
+
+    return { recurrentGroups, nonRecurrentTransactions }
+  }
+
+  // Função para alternar expansão do grupo
+  const toggleGroupExpansion = (recurrenceId: number) => {
+    const newExpanded = new Set(expandedGroups)
+    if (newExpanded.has(recurrenceId)) {
+      newExpanded.delete(recurrenceId)
+    } else {
+      newExpanded.add(recurrenceId)
+    }
+    setExpandedGroups(newExpanded)
+  }
+
+  // Função para renderizar um grupo de recorrência
+  const renderRecurrentGroup = (recurrenceId: number, transactions: FinancialTransaction[], index: number) => {
+    const isExpanded = expandedGroups.has(recurrenceId)
+    const totalValue = transactions.reduce((sum, t) => t.type === 'entrada' ? sum + t.value : sum - t.value, 0)
+    const paidCount = transactions.filter(t => t.status === 'pago').length
+    
+    return (
+      <React.Fragment key={`recurrence-${recurrenceId}-${index}`}>
+        {/* Linha do grupo de recorrência */}
+        <TableRow className="bg-purple-50 hover:bg-purple-100 border-l-4 border-purple-500">
+          <TableCell>
+            <Checkbox disabled />
+          </TableCell>
+          <TableCell colSpan={8}>
+            <button
+              onClick={() => toggleGroupExpansion(recurrenceId)}
+              className="flex items-center gap-3 w-full text-left hover:text-purple-700"
+            >
+              {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+              <Badge className="bg-purple-600 text-white">
+                <RepeatIcon className="h-3 w-3 mr-1" />
+                Recorrência ID: {recurrenceId}
+              </Badge>
+              <span className="font-medium">
+                {transactions[0]?.description || 'Lançamento recorrente'} 
+                ({transactions.length} lançamentos - {paidCount} pagos)
+              </span>
+              <span className={`font-bold ${totalValue >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                {formatCurrency(Math.abs(totalValue))}
+              </span>
+            </button>
+          </TableCell>
+        </TableRow>
+        
+        {/* Linhas dos lançamentos individuais (expansível) */}
+        {isExpanded && transactions.map((transaction) => renderTransactionRow(transaction))}
+      </React.Fragment>
+    )
+  }
+
+  // Função para renderizar uma linha de transação individual
+  const renderTransactionRow = (transaction: FinancialTransaction) => (
+    <TableRow key={transaction.id}>
+      <TableCell>
+        <Checkbox
+          checked={transaction.id ? selectedTransactions.includes(transaction.id) : false}
+          onCheckedChange={() => handleSelectTransaction(transaction.id)}
+          disabled={transaction.status === "pago"}
+          aria-label={`Selecionar lançamento ${transaction.code}`}
+        />
+      </TableCell>
+      <TableCell className="max-w-[200px]">
+        <div className="flex items-center gap-2">
+          <span className="truncate">
+            {transaction.clientName && transaction.businessUnitName 
+              ? `${transaction.clientName} - ${transaction.businessUnitName}`
+              : transaction.businessUnitName || transaction.clientName || "-"
+            }
+          </span>
+          {transaction.isRecurrent && !groupedByRecurrence && (
+            <Badge 
+              className="bg-gradient-to-r from-purple-500 to-purple-600 text-white text-xs flex-shrink-0 animate-pulse p-1"
+            >
+              <RepeatIcon className="h-3 w-3" />
+            </Badge>
+          )}
+        </div>
+      </TableCell>
+      <TableCell>
+        {transaction.competence || generateCompetenceCode(transaction.dueDate)}
+      </TableCell>
+      <TableCell>
+        {transaction.document ? (
+          <button
+            onClick={() => {
+              if (transaction.document?.startsWith('http')) {
+                window.open(transaction.document, '_blank')
+              } else {
+                customToast.info(`Documento: ${transaction.document}`, { position: "bottom-right" })
+              }
+            }}
+            className="text-blue-600 hover:text-blue-800 hover:underline font-medium flex items-center gap-1"
+          >
+            <FileText className="h-4 w-4" />
+            {transaction.document}
+          </button>
+        ) : (
+          <span className="text-gray-400 text-sm">Nenhum documento</span>
+        )}
+      </TableCell>
+      <TableCell>
+        <Badge
+          className={
+            transaction.type === "entrada"
+              ? "bg-green-100 text-green-800 hover:bg-green-200"
+              : "bg-red-100 text-red-800 hover:bg-red-200"
+          }
+        >
+          {transaction.type === "entrada" ? "Entrada" : "Saída"}
+        </Badge>
+      </TableCell>
+      <TableCell className="max-w-[150px]">
+        <span className="truncate text-xs" title={transaction.transactionTypeName}>
+          {transaction.transactionTypeName}
+        </span>
+      </TableCell>
+      <TableCell>
+        <Badge className={getStatusColor(transaction.status)}>
+          {format(transaction.dueDate, "dd/MM/yy")}
+        </Badge>
+      </TableCell>
+      <TableCell>
+        {transaction.paymentDate ? (
+          <Badge className="bg-green-100 text-green-800 hover:bg-green-200">
+            {format(transaction.paymentDate, "dd/MM/yy")}
+          </Badge>
+        ) : (
+          <span className="text-gray-400 text-sm">-</span>
+        )}
+      </TableCell>
+      <TableCell className="text-right font-medium">
+        <span className={getTypeColor(transaction.type)}>
+          {formatCurrency(transaction.value)}
+        </span>
+      </TableCell>
+      <TableCell className="text-right">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-8 w-8">
+              <span className="sr-only">Abrir menu</span>
+              <FileText className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuLabel>Ações</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => handleEditTransaction(transaction)}>
+              <Pencil className="mr-2 h-4 w-4" />
+              Editar
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleViewTransactionDetails(transaction)}>
+              <FileText className="mr-2 h-4 w-4" />
+              Ver detalhes
+            </DropdownMenuItem>
+            {transaction.isRecurrent && (
+              <DropdownMenuItem onClick={() => handleViewRecurrenceDetails(transaction)}>
+                <RepeatIcon className="mr-2 h-4 w-4 text-purple-600" />
+                <span className="text-purple-600 font-medium">Ver Recorrência</span>
+              </DropdownMenuItem>
+            )}
+            {transaction.status === "pendente" && (
+              <DropdownMenuItem onClick={() => handleMarkAsPaid(transaction)}>
+                <CheckCircle className="mr-2 h-4 w-4" />
+                Marcar como pago
+              </DropdownMenuItem>
+            )}
+            {transaction.status === "pendente" && (
+              <DropdownMenuItem onClick={() => handleMarkAsCanceled(transaction)}>
+                <XCircle2 className="mr-2 h-4 w-4" />
+                Cancelar
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuItem onClick={() => handleCreateRecurringTransaction(transaction)}>
+              <RepeatIcon className="mr-2 h-4 w-4" />
+              Gerar Recorrência
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleDeleteTransaction(transaction)}>
+              <Trash2 className="mr-2 h-4 w-4" />
+              Excluir
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </TableCell>
+    </TableRow>
+  )
+
+  const containerVariants = {
+    hidden: { opacity: 0 },
+    visible: {
+      opacity: 1,
+      transition: {
+        staggerChildren: 0.05,
+        delayChildren: 0.1,
+      },
+    },
+  }
+
+  const itemVariants = {
+    hidden: { opacity: 0, y: 20 },
+    visible: {
+      opacity: 1,
+      y: 0,
+      transition: {
+        type: "spring",
+        stiffness: 100,
+        damping: 15,
+      },
+    },
+  }
+
+  const cardVariants = {
+    hidden: { opacity: 0, scale: 0.98 },
+    visible: {
+      opacity: 1,
+      scale: 1,
+      transition: {
+        type: "spring",
+        stiffness: 100,
+        damping: 15,
+      },
+    },
+  }
+
+  return (
+    <>
+      <MainHeader />
+      <div className="bg-slate-50 min-h-screen dark:bg-slate-950">
+        <motion.div className="container mx-auto py-6" initial="hidden" animate="visible" variants={containerVariants}>
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-6">
+            <div className="lg:col-span-4">
+              <motion.div variants={cardVariants}>
+                <Card>
+                  <motion.div variants={itemVariants}>
+                    <CardHeader className="pb-2">
+                      <div className="flex items-center justify-between gap-3">
+                        {/* Título */}
+                        <CardTitle className="text-2xl font-bold flex items-center text-blue-600 whitespace-nowrap">
+                          <FileText className="mr-2 w-8 h-8" />
+                          <span className="font-medium text-3xl">Lançamentos Financeiros</span>
+                        </CardTitle>
+
+                        {/* Campo de pesquisa centralizado */}
+                        <div className="flex-1 flex justify-center">
+                          <div className="relative w-[400px]">
+                            <div className="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 flex items-center gap-2 pointer-events-none">
+                              {!searchTerm && <Search className="h-4 w-4 text-muted-foreground" />}
+                              {!searchTerm && <span className="text-muted-foreground text-sm">Pesquisar</span>}
+                            </div>
+                            <Input
+                              placeholder=" "
+                              value={searchTerm}
+                              onChange={(e) => setSearchTerm(e.target.value)}
+                              className="w-full border-0 bg-slate-200 dark:bg-slate-800 px-10 text-center focus:ring-2 focus:ring-blue-500"
+                            />
+                            <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                              {searchTerm ? (
+                                <Button variant="ghost" size="icon" onClick={clearSearch} className="h-6 w-6 p-0">
+                                  <XCircle className="h-4 w-4 text-muted-foreground" />
+                                </Button>
+                              ) : null}
+                            </div>
+                          </div>
+                        </div>
+                        <Button onClick={handleAddTransaction} className="bg-blue-600 hover:bg-blue-700 text-white whitespace-nowrap">
+                          <Plus className="h-4 w-4 mr-2" />
+                          Novo Lançamento
+                        </Button>
+                      </div>
+
+                      {/* Botões de ação */}
+                      <div className="flex justify-between items-center mt-4">
+                        <div className="flex gap-2">
+                          <LancamentoFilters
+                            onFilter={handleFilter}
+                            initialFilter={currentFilter}
+                            open={isFilterOpen}
+                            onOpenChange={setIsFilterOpen}
+                          />
+                          <Button
+                            variant={groupedByRecurrence ? "default" : "outline"}
+                            onClick={() => setGroupedByRecurrence(!groupedByRecurrence)}
+                            className={groupedByRecurrence 
+                              ? "bg-purple-600 hover:bg-purple-700 text-white border-purple-600"
+                              : "bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800 border-slate-200 dark:border-slate-700"
+                            }
+                          >
+                            <RepeatIcon className="h-4 w-4 mr-2" />
+                            {groupedByRecurrence ? "Desagrupar" : "Agrupar"}
+                          </Button>
+                          <Button
+                            onClick={fetchTransactions}
+                            variant="outline"
+                            className="bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800 border-slate-200 dark:border-slate-700"
+                          >
+                            <RefreshCw className="h-4 w-4" />
+                          </Button>
+                          <CashAccountsView />
+                          {selectedTransactions.length > 0 && (
+                            <Button variant="destructive" size="sm" onClick={handleDeleteSelected}>
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Excluir selecionados ({selectedTransactions.length})
+                            </Button>
+                          )}
+                        </div>
+
+                        <div className="bg-blue-50 dark:bg-blue-300 border border-blue-200 rounded-md px-4 py-1.5 whitespace-nowrap">
+                          <span className="text-sm text-blue-700 mr-2">Subtotal em tela:</span>
+                          <span className="font-bold text-blue-700">
+                            {formatCurrency(
+                              paginatedTransactions.reduce((total, transaction) => {
+                                if (transaction.status !== "cancelado") {
+                                  return transaction.type === "entrada"
+                                    ? total + transaction.value
+                                    : total - transaction.value
+                                }
+                                return total
+                              }, 0)
+                            )}
+                          </span>
+                        </div>
+                      </div>
+                    </CardHeader>
+                  </motion.div>
+
+                  <CardContent>
+                    <motion.div variants={itemVariants} className="rounded-md p-2 border mt-5">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="w-[40px]">
+                              <Checkbox
+                                checked={selectAll}
+                                onCheckedChange={handleSelectAll}
+                                aria-label="Selecionar todos"
+                              />
+                            </TableHead>
+                            <SortableTableHead
+                              field="businessUnitName"
+                              label="Unidade de Negócio"
+                              currentSortBy={pagination.sortBy}
+                              currentSortOrder={pagination.sortOrder}
+                              onSort={pagination.setSorting}
+                            />
+                            <SortableTableHead
+                              field="competence"
+                              label="Comp"
+                              currentSortBy={pagination.sortBy}
+                              currentSortOrder={pagination.sortOrder}
+                              onSort={pagination.setSorting}
+                            />
+                            <SortableTableHead
+                              field="document"
+                              label="Doc"
+                              currentSortBy={pagination.sortBy}
+                              currentSortOrder={pagination.sortOrder}
+                              onSort={pagination.setSorting}
+                            />
+                            <SortableTableHead
+                              field="type"
+                              label="Natureza"
+                              currentSortBy={pagination.sortBy}
+                              currentSortOrder={pagination.sortOrder}
+                              onSort={pagination.setSorting}
+                            />
+                            <SortableTableHead
+                              field="transactionTypeName"
+                              label="Tipo Lançamento"
+                              currentSortBy={pagination.sortBy}
+                              currentSortOrder={pagination.sortOrder}
+                              onSort={pagination.setSorting}
+                            />
+                            <SortableTableHead
+                              field="dueDate"
+                              label="Vencimento"
+                              currentSortBy={pagination.sortBy}
+                              currentSortOrder={pagination.sortOrder}
+                              onSort={pagination.setSorting}
+                            />
+                            <SortableTableHead
+                              field="paymentDate"
+                              label="Pagamento"
+                              currentSortBy={pagination.sortBy}
+                              currentSortOrder={pagination.sortOrder}
+                              onSort={pagination.setSorting}
+                            />
+                            <SortableTableHead
+                              field="value"
+                              label="Valor"
+                              currentSortBy={pagination.sortBy}
+                              currentSortOrder={pagination.sortOrder}
+                              onSort={pagination.setSorting}
+                            />
+                            <TableHead className="text-right">Ações</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {loading ? (
+                            <TableRow>
+                              <TableCell colSpan={10} className="text-center py-10">
+                                <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2" />
+                                <span>Carregando lançamentos...</span>
+                              </TableCell>
+                            </TableRow>
+                          ) : error ? (
+                            <TableRow>
+                              <TableCell colSpan={10} className="text-center py-10 text-red-500">
+                                {error}
+                              </TableCell>
+                            </TableRow>
+                          ) : filteredAndSortedTransactions.length === 0 ? (
+                            <TableRow>
+                              <TableCell colSpan={10} className="text-center py-10 text-muted-foreground">
+                                Nenhum lançamento encontrado.
+                              </TableCell>
+                            </TableRow>
+                          ) : groupedByRecurrence ? (
+                            (() => {
+                              const { recurrentGroups, nonRecurrentTransactions } = groupTransactionsByRecurrence(paginatedTransactions)
+                              return (
+                                <>
+                                  {/* Renderizar grupos de recorrência */}
+                                  {Array.from(recurrentGroups.entries()).map(([recurrenceId, transactions], index) =>
+                                    renderRecurrentGroup(recurrenceId, transactions, index)
+                                  )}
+                                  
+                                  {/* Renderizar transações não recorrentes */}
+                                  {nonRecurrentTransactions.map((transaction) => renderTransactionRow(transaction))}
+                                </>
+                              )
+                            })()
+                          ) : (
+                            paginatedTransactions.map((transaction) => renderTransactionRow(transaction))
+                                <TableCell>
+                                  {transaction.competence || generateCompetenceCode(transaction.dueDate)}
+                                </TableCell>
+                                <TableCell>
+                                  {transaction.document ? (
+                                    <button
+                                      onClick={() => {
+                                        // Se for uma URL, abrir em nova aba
+                                        if (transaction.document?.startsWith('http')) {
+                                          window.open(transaction.document, '_blank')
+                                        } else {
+                                          // Caso contrário, mostrar o número do documento
+                                          customToast.info(`Documento: ${transaction.document}`, { position: "bottom-right" })
+                                        }
+                                      }}
+                                      className="text-blue-600 hover:text-blue-800 hover:underline font-medium flex items-center gap-1"
+                                    >
+                                      <FileText className="h-4 w-4" />
+                                      {transaction.document}
+                                    </button>
+                                  ) : (
+                                    <span className="text-gray-400 text-sm">Nenhum documento</span>
+                                  )}
+                                </TableCell>
+                                <TableCell>
+                                  <Badge
+                                    className={
+                                      transaction.type === "entrada"
+                                        ? "bg-green-100 text-green-800 hover:bg-green-200"
+                                        : "bg-red-100 text-red-800 hover:bg-red-200"
+                                    }
+                                  >
+                                    {transaction.type === "entrada" ? "Entrada" : "Saída"}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell>{transaction.transactionTypeName || "-"}</TableCell>
+                                <TableCell>{formatDate(transaction.dueDate)}</TableCell>
+                                <TableCell>
+                                  {transaction.paymentDate ? (
+                                    <span className="text-green-700 font-medium">
+                                      {formatDate(transaction.paymentDate)}
+                                    </span>
+                                  ) : (
+                                    <span className="text-gray-400">-</span>
+                                  )}
+                                </TableCell>
+                                <TableCell className={getTypeColor(transaction.type)}>
+                                  {transaction.type === "entrada" ? "+" : "-"}
+                                  {formatCurrency(transaction.value)}
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                      <Button variant="ghost" size="icon" className="h-8 w-8">
+                                        <span className="sr-only">Abrir menu</span>
+                                        <FileText className="h-4 w-4" />
+                                      </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end">
+                                      <DropdownMenuLabel>Ações</DropdownMenuLabel>
+                                      <DropdownMenuSeparator />
+                                      <DropdownMenuItem onClick={() => handleEditTransaction(transaction)}>
+                                        <Pencil className="mr-2 h-4 w-4" />
+                                        Editar
+                                      </DropdownMenuItem>
+                                      {/* Add a new option in the dropdown menu to view details */}
+                                      <DropdownMenuItem onClick={() => handleViewTransactionDetails(transaction)}>
+                                        <FileText className="mr-2 h-4 w-4" />
+                                        Ver detalhes
+                                      </DropdownMenuItem>
+                                      {transaction.isRecurrent && (
+                                        <DropdownMenuItem onClick={() => handleViewRecurrenceDetails(transaction)}>
+                                          <RepeatIcon className="mr-2 h-4 w-4 text-purple-600" />
+                                          <span className="text-purple-600 font-medium">Ver Recorrência</span>
+                                        </DropdownMenuItem>
+                                      )}
+                                      {transaction.status === "pendente" && (
+                                        <DropdownMenuItem onClick={() => handleMarkAsPaid(transaction)}>
+                                          <CheckCircle className="mr-2 h-4 w-4" />
+                                          Marcar como pago
+                                        </DropdownMenuItem>
+                                      )}
+                                      {transaction.status === "pendente" && (
+                                        <DropdownMenuItem onClick={() => handleMarkAsCanceled(transaction)}>
+                                          <XCircle2 className="mr-2 h-4 w-4" />
+                                          Cancelar
+                                        </DropdownMenuItem>
+                                      )}
+                                      <DropdownMenuItem onClick={() => handleCreateRecurringTransaction(transaction)}>
+                                        <RepeatIcon className="mr-2 h-4 w-4" />
+                                        Gerar Recorrência
+                                      </DropdownMenuItem>
+                                      <DropdownMenuItem onClick={() => handleDeleteTransaction(transaction)}>
+                                        <Trash2 className="mr-2 h-4 w-4" />
+                                        Excluir
+                                      </DropdownMenuItem>
+                                    </DropdownMenuContent>
+                                  </DropdownMenu>
+                                </TableCell>
+                              </TableRow>
+                            ))
+                          )}
+                        </TableBody>
+                      </Table>
+                    </motion.div>
+                    {filteredAndSortedTransactions.length > 0 && (
+                      <Pagination
+                        currentPage={pagination.currentPage}
+                        totalPages={totalPages}
+                        totalItems={filteredAndSortedTransactions.length}
+                        itemsPerPage={pagination.itemsPerPage}
+                        onPageChange={pagination.setPage}
+                        onItemsPerPageChange={pagination.setItemsPerPage}
+                      />
+                    )}
+                  </CardContent>
+                </Card>
+              </motion.div>
+            </div>
+          </div>
+        </motion.div>
+      </div>
+
+      {/* Modal de cadastro/edição de lançamento */}
+      <TransactionModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onSuccess={() => {
+          setIsModalOpen(false)
+          fetchTransactions()
+        }}
+        transaction={currentTransactionForModal}
+      />
+
+      {/* Modal de recorrência */}
+      <RecurringTransactionModal
+        isOpen={isRecurringModalOpen}
+        onClose={() => setIsRecurringModalOpen(false)}
+        transaction={currentTransaction as Partial<FinancialTransaction>}
+        onSave={fetchTransactions}
+      />
+
+      {/* Diálogo de confirmação de exclusão */}
+      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirmar exclusão</DialogTitle>
+            <DialogDescription>
+              Tem certeza que deseja excluir o lançamento <span className="font-bold">{currentTransaction?.code}</span>?
+              Esta ação não pode ser desfeita.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>
+              Cancelar
+            </Button>
+            <Button variant="destructive" onClick={confirmDelete}>
+              Excluir
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Replace the isPaymentDateDialogOpen dialog with the new modals */}
+      <PaymentModal
+        isOpen={isPaymentModalOpen}
+        onClose={() => setIsPaymentModalOpen(false)}
+        transaction={currentTransaction}
+        onSave={fetchTransactions}
+      />
+
+      <CancelPaymentModal
+        isOpen={isCancelPaymentModalOpen}
+        onClose={() => setIsCancelPaymentModalOpen(false)}
+        transaction={currentTransaction}
+        onSave={fetchTransactions}
+      />
+
+      <TransactionDetailsModal
+        isOpen={isTransactionDetailsModalOpen}
+        onClose={() => setIsTransactionDetailsModalOpen(false)}
+        transaction={currentTransaction}
+        recurrenceData={relatedTransactions}
+      />
+
+      {/* Dialog de confirmação para exclusão em massa */}
+      <AlertDialog open={isDeleteManyDialogOpen} onOpenChange={setIsDeleteManyDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmar exclusão em massa</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza que deseja excluir {selectedTransactions.length} lançamento(s)? Esta ação não pode ser
+              desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDeleteSelected} className="bg-red-600 hover:bg-red-700">
+              {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  )
+}
