@@ -1,0 +1,115 @@
+import { httpClient } from '@/lib/http-client'
+
+export interface CompanyItem {
+  id: number
+  nome: string
+  status: string
+  createdAt: string
+  updatedAt: string
+  tenantInstance: {
+    id: number
+    tenancyMode: 'shared' | 'dedicated'
+    databaseKey: string
+    status: string
+  }
+}
+
+export interface EmpresaItem {
+  id: number
+  companyId: number
+  razaoSocial: string
+  nomeFantasia: string | null
+  cnpj: string
+  status: string
+}
+
+export interface UnidadeItem {
+  id: number
+  companyId: number
+  nome: string
+  abreviatura: string
+  status: string
+}
+
+interface ListResponse<T> {
+  success: boolean
+  data: {
+    items: T[]
+  }
+}
+
+interface ItemResponse<T> {
+  success: boolean
+  data: {
+    item: T
+  }
+}
+
+export async function getCompanies(): Promise<CompanyItem[]> {
+  const response = await httpClient.get<ListResponse<CompanyItem>>('/v1/companies')
+  return response.data.items
+}
+
+export async function createCompany(payload: {
+  nome: string
+  tenancyMode: 'shared' | 'dedicated'
+  databaseKey?: string
+  status?: string
+}): Promise<CompanyItem> {
+  const response = await httpClient.post<ItemResponse<CompanyItem>>('/v1/companies', payload)
+  return response.data.item
+}
+
+export async function updateCompany(id: number, payload: {
+  nome: string
+  tenancyMode: 'shared' | 'dedicated'
+  databaseKey?: string
+  status?: string
+}): Promise<CompanyItem> {
+  const response = await httpClient.put<ItemResponse<CompanyItem>>(`/v1/companies/${id}`, payload)
+  return response.data.item
+}
+
+export async function getEmpresas(companyId?: number): Promise<EmpresaItem[]> {
+  const query = companyId ? `?companyId=${companyId}` : ''
+  const response = await httpClient.get<ListResponse<EmpresaItem>>(`/v1/empresas${query}`)
+  return response.data.items
+}
+
+export async function createEmpresa(payload: {
+  companyId: number
+  razaoSocial: string
+  nomeFantasia?: string
+  cnpj: string
+  status?: string
+}): Promise<EmpresaItem> {
+  const response = await httpClient.post<ItemResponse<EmpresaItem>>('/v1/empresas', payload)
+  return response.data.item
+}
+
+export async function updateEmpresa(id: number, payload: {
+  companyId: number
+  razaoSocial: string
+  nomeFantasia?: string
+  cnpj: string
+  status?: string
+}): Promise<EmpresaItem> {
+  const response = await httpClient.put<ItemResponse<EmpresaItem>>(`/v1/empresas/${id}`, payload)
+  return response.data.item
+}
+
+export async function getUnidades(companyId?: number): Promise<UnidadeItem[]> {
+  const query = companyId ? `?companyId=${companyId}` : ''
+  const response = await httpClient.get<ListResponse<UnidadeItem>>(`/v1/unidades${query}`)
+  return response.data.items
+}
+
+export async function createUnidade(payload: {
+  companyId: number
+  nome: string
+  abreviatura: string
+  status?: string
+}): Promise<UnidadeItem> {
+  const response = await httpClient.post<ItemResponse<UnidadeItem>>('/v1/unidades', payload)
+  return response.data.item
+}

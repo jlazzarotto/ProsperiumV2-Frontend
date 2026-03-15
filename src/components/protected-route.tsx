@@ -17,12 +17,12 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
 
   useEffect(() => {
     if (!loading && !user) {
-      router.push("/")
+      router.push("/login")
       return
     }
 
     if (!loading && user && modulo && !canAccess(modulo, 'ver')) {
-      router.push("/financeiro")
+      router.push("/")
     }
   }, [user, loading, router, modulo, canAccess])
 

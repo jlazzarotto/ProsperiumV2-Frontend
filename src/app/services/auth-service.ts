@@ -1,4 +1,5 @@
 import { httpClient } from '@/lib/http-client'
+import type { NavigationCategory } from '@/types/navigation'
 import type { ModulosHabilitados, PermissoesModulo } from '@/types/permissions'
 
 export interface LoginRequest {
@@ -6,28 +7,50 @@ export interface LoginRequest {
   password: string
 }
 
-export interface LoginResponse {
+interface JwtLoginResponse {
   token: string
-  operador: {
-    id: number
-    email: string
-    nome: string
-    roles?: string[]
-    [key: string]: unknown
-  }
-  permissoes_modulo?: PermissoesModulo
-  modulos_habilitados?: ModulosHabilitados
-  expires_in: number
 }
 
 export interface User {
   id: number
   email: string
   nome: string
-  roles?: string[]
+  role: string
+  roles: string[]
+  status?: string
+  companyIds?: number[]
+  empresaIds?: number[]
+  unidadeIds?: number[]
+  profileCodes?: string[]
   permissoes_modulo?: PermissoesModulo
   modulos_habilitados?: ModulosHabilitados
+  menu?: NavigationCategory[]
   [key: string]: unknown
+}
+
+interface MeResponse {
+  success: boolean
+  data: {
+    item: {
+      id: number
+      nome: string
+      email: string
+      role: string
+      status: string
+      companyIds: number[]
+      empresaIds: number[]
+      unidadeIds: number[]
+      profileCodes: string[]
+      modulos_habilitados?: ModulosHabilitados
+      permissoes_modulo?: PermissoesModulo
+      menu?: NavigationCategory[]
+    }
+  }
+}
+
+export interface LoginResponse {
+  token: string
+  user: User
 }
 
 class AuthService {
@@ -35,28 +58,22 @@ class AuthService {
    * Realiza login na API
    */
   async login(email: string, password: string): Promise<LoginResponse> {
-    const response = await httpClient.post<LoginResponse>('/login', {
+    const response = await httpClient.post<JwtLoginResponse>('/v1/auth/login', {
       email,
       password,
     })
 
-    // Salvar token no localStorage
     if (response.token) {
       this.setToken(response.token)
     }
 
-    // Salvar dados do usuário (operador) com permissoes
-    if (response.operador) {
-      const user: User = {
-        ...response.operador,
-        roles: response.operador.roles,
-        permissoes_modulo: response.permissoes_modulo,
-        modulos_habilitados: response.modulos_habilitados,
-      }
-      this.setUser(user)
-    }
+    const user = await this.fetchCurrentUser()
+    this.setUser(user)
 
-    return response
+    return {
+      token: response.token,
+      user,
+    }
   }
 
   /**
@@ -144,6 +161,16 @@ class AuthService {
    */
   isAuthenticated(): boolean {
     return !!this.getToken()
+  }
+
+  async fetchCurrentUser(): Promise<User> {
+    const response = await httpClient.get<MeResponse>('/v1/me')
+    const item = response.data.item
+
+    return {
+      ...item,
+      roles: [item.role, 'ROLE_USER'],
+    }
   }
 }
 

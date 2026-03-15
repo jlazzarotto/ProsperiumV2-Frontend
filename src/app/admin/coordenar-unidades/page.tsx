@@ -1,275 +1,186 @@
 "use client"
 
-import { useState, useEffect, useMemo, useCallback } from "react"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Input } from "@/components/ui/input"
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { useEffect, useMemo, useState } from "react"
+import { Briefcase, Plus, RefreshCw } from "lucide-react"
 import { MainHeader } from "@/components/main-header"
-import { BusinessUnitModal } from "@/components/business-unit-modal"
-import type { BusinessUnitSummary } from "@/app/services/business-unit-summary-service"
-import { getAllBusinessUnitSummaries, deleteBusinessUnitSummary } from "@/app/services/business-unit-summary-service"
-import { Plus, Building, Trash2, Loader2, XCircle, Pencil, Search } from "lucide-react"
-import { motion } from "framer-motion"
-import { Pagination } from "@/components/ui/pagination"
-import { usePagination } from "@/app/hooks/use-pagination"
-import { SortableTableHead } from "@/components/ui/sortable-table-head"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Badge } from "@/components/ui/badge"
 import customToast from "@/components/ui/custom-toast"
 import { useAuth } from "@/app/contexts/auth-context"
+import { createUnidade, getCompanies, getUnidades, type CompanyItem, type UnidadeItem } from "@/app/services/core-saas-service"
 
 export default function CoordenarUnidadesPage() {
-  const { hasPermission } = useAuth()
-  const [unidades, setUnidades] = useState<BusinessUnitSummary[]>([])
-  const [searchTerm, setSearchTerm] = useState("")
+  const { user } = useAuth()
   const [loading, setLoading] = useState(true)
-  const [isModalOpen, setIsModalOpen] = useState(false)
-  const [selectedUnidade, setSelectedUnidade] = useState<BusinessUnitSummary | null>(null)
-  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
-  const [unidadeToDelete, setUnidadeToDelete] = useState<BusinessUnitSummary | null>(null)
-  const [isDeleting, setIsDeleting] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [companies, setCompanies] = useState<CompanyItem[]>([])
+  const [unidades, setUnidades] = useState<UnidadeItem[]>([])
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [form, setForm] = useState({ companyId: "", nome: "", abreviatura: "" })
 
-  const pagination = usePagination({
-    defaultItemsPerPage: 10,
-    defaultSortBy: "apelido",
-    defaultSortOrder: "asc",
-  })
+  const isRoot = user?.role === "ROLE_ROOT"
 
-  const filteredAndSorted = useMemo(() => {
-    let filtered = unidades
-    if (searchTerm.trim()) {
-      const s = searchTerm.toLowerCase()
-      filtered = unidades.filter(
-        u => u.apelido?.toLowerCase().includes(s) || u.abreviatura?.toLowerCase().includes(s)
-      )
-    }
-
-    if (!pagination.sortBy) return filtered
-
-    return [...filtered].sort((a, b) => {
-      const aVal = (a as any)[pagination.sortBy] ?? ""
-      const bVal = (b as any)[pagination.sortBy] ?? ""
-      if (!aVal) return 1
-      if (!bVal) return -1
-      const cmp = typeof aVal === "string"
-        ? aVal.toLowerCase().localeCompare(bVal.toLowerCase())
-        : aVal - bVal
-      return pagination.sortOrder === "asc" ? cmp : -cmp
-    })
-  }, [unidades, searchTerm, pagination.sortBy, pagination.sortOrder])
-
-  const { paginatedData, totalPages } = useMemo(
-    () => pagination.paginateData(filteredAndSorted),
-    [filteredAndSorted, pagination]
-  )
-
-  const loadUnidades = useCallback(async () => {
+  const load = async () => {
     setLoading(true)
     try {
-      const data = await getAllBusinessUnitSummaries()
-      setUnidades(data)
-    } catch {
-      customToast.error("Erro ao carregar unidades")
+      const [companiesData, unidadesData] = await Promise.all([getCompanies(), getUnidades()])
+      setCompanies(companiesData)
+      setUnidades(unidadesData)
+    } catch (error) {
+      console.error("Erro ao carregar unidades:", error)
+      customToast.error("Erro ao carregar unidades de negócio.")
     } finally {
       setLoading(false)
     }
+  }
+
+  useEffect(() => {
+    void load()
   }, [])
 
-  useEffect(() => { loadUnidades() }, [])
+  const companiesById = useMemo(
+    () => new Map(companies.map((company) => [company.id, company])),
+    [companies]
+  )
 
-  const handleAdd = () => { setSelectedUnidade(null); setIsModalOpen(true) }
-  const handleEdit = (u: BusinessUnitSummary) => { setSelectedUnidade(u); setIsModalOpen(true) }
-  const handleDelete = (u: BusinessUnitSummary) => { setUnidadeToDelete(u); setIsDeleteDialogOpen(true) }
-
-  const confirmDelete = async () => {
-    if (!unidadeToDelete?.id) return
-    setIsDeleting(true)
-    try {
-      await deleteBusinessUnitSummary(unidadeToDelete.id)
-      customToast.success("Unidade excluída com sucesso!")
-      loadUnidades()
-    } catch (error: any) {
-      const msg = error?.response?.data?.message || error?.message || "Erro ao excluir unidade"
-      customToast.error(msg)
-    } finally {
-      setIsDeleting(false)
-      setIsDeleteDialogOpen(false)
-      setUnidadeToDelete(null)
+  const defaultCompanyId = useMemo(() => {
+    if (isRoot) {
+      return ""
     }
-  }
 
-  const handleModalClose = (saved: boolean) => {
-    setIsModalOpen(false)
-    setSelectedUnidade(null)
-    if (saved) loadUnidades()
-  }
+    return user?.companyIds?.[0] ? String(user.companyIds[0]) : ""
+  }, [isRoot, user?.companyIds])
 
-  const containerVariants = {
-    hidden: { opacity: 0 },
-    visible: { opacity: 1, transition: { staggerChildren: 0.05, delayChildren: 0.1 } },
-  }
-  const cardVariants = {
-    hidden: { opacity: 0, y: 20 },
-    visible: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 100, damping: 15 } },
+  useEffect(() => {
+    if (!form.companyId && defaultCompanyId) {
+      setForm((prev) => ({ ...prev, companyId: defaultCompanyId }))
+    }
+  }, [defaultCompanyId, form.companyId])
+
+  const handleCreate = async () => {
+    if (!form.companyId || !form.nome.trim() || !form.abreviatura.trim()) {
+      customToast.error("Preencha company, nome e abreviatura.")
+      return
+    }
+
+    setSaving(true)
+    try {
+      await createUnidade({
+        companyId: Number(form.companyId),
+        nome: form.nome.trim(),
+        abreviatura: form.abreviatura.trim(),
+      })
+
+      customToast.success("Unidade criada com sucesso.")
+      setDialogOpen(false)
+      setForm({ companyId: defaultCompanyId, nome: "", abreviatura: "" })
+      await load()
+    } catch (error: any) {
+      customToast.error(error?.response?.data?.error?.message || error?.message || "Erro ao criar unidade.")
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
     <>
       <MainHeader />
-      <div className="bg-slate-50 min-h-screen dark:bg-slate-950">
-        <motion.div className="px-6 lg:px-10 py-6" initial="hidden" animate="visible" variants={containerVariants}>
-          <motion.div variants={cardVariants}>
-            <Card className="border-slate-200 dark:border-slate-800">
-              <CardHeader className="px-6 py-3">
-                <div className="flex items-center justify-between gap-4">
-                  <CardTitle className="flex items-center text-green-600">
-                    <Building className="mr-2 w-8 h-8" />
-                    <span className="text-2xl font-medium">Coordenar Unidades</span>
-                  </CardTitle>
+      <div className="min-h-screen bg-slate-50/70 dark:bg-slate-950">
+        <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
+          <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-white">
+                Unidades de Negócio
+              </h1>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                Listagem e cadastro aderentes ao modelo canônico atual.
+              </p>
+            </div>
 
-                  <div className="flex-1 flex justify-center">
-                    <div className="relative w-full max-w-md">
-                      {!searchTerm && (
-                        <div className="absolute inset-0 flex items-center justify-center gap-2 pointer-events-none">
-                          <Search className="h-4 w-4 text-muted-foreground" />
-                          <span className="text-muted-foreground text-sm">Pesquisar</span>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={() => void load()} disabled={loading}>
+                <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+                Atualizar
+              </Button>
+              <Button onClick={() => setDialogOpen(true)}>
+                <Plus className="mr-2 h-4 w-4" />
+                Nova Unidade
+              </Button>
+            </div>
+          </div>
+
+          <Card className="border-slate-200 dark:border-slate-800">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Briefcase className="h-4 w-4 text-amber-600" />
+                Unidades acessíveis
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {loading ? (
+                <div className="text-sm text-slate-500">Carregando unidades...</div>
+              ) : unidades.length === 0 ? (
+                <div className="text-sm text-slate-500">Nenhuma unidade disponível.</div>
+              ) : (
+                unidades.map((unidade) => (
+                  <div key={unidade.id} className="rounded-xl border border-slate-200 p-4 dark:border-slate-800">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="font-medium text-slate-900 dark:text-white">{unidade.nome}</div>
+                        <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                          Abreviatura {unidade.abreviatura} • Company: {companiesById.get(unidade.companyId)?.nome || `#${unidade.companyId}`}
                         </div>
-                      )}
-                      <Input
-                        placeholder=" "
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        className="w-full border-0 bg-slate-200 dark:bg-slate-800 px-10 text-center focus:ring-2 focus:ring-green-500"
-                      />
-                      {searchTerm && (
-                        <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                          <Button variant="ghost" size="icon" className="h-6 w-6 p-0" onClick={() => setSearchTerm("")}>
-                            <XCircle className="h-4 w-4 text-muted-foreground" />
-                          </Button>
-                        </div>
-                      )}
+                      </div>
+                      <Badge variant={unidade.status === "active" ? "default" : "secondary"}>
+                        {unidade.status}
+                      </Badge>
                     </div>
                   </div>
-
-                  {hasPermission('admin.coordenar_unidades', 'criar_editar') && (
-                    <Button onClick={handleAdd} className="bg-green-600 hover:bg-green-700">
-                      <Plus className="h-4 w-4 mr-2" />
-                      Nova Unidade
-                    </Button>
-                  )}
-                </div>
-              </CardHeader>
-
-              <CardContent>
-                <div className="rounded-md border">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <SortableTableHead
-                          field="apelido"
-                          label="Nome"
-                          currentSortBy={pagination.sortBy}
-                          currentSortOrder={pagination.sortOrder}
-                          onSort={pagination.setSorting}
-                        />
-                        <SortableTableHead
-                          field="abreviatura"
-                          label="Abreviatura"
-                          currentSortBy={pagination.sortBy}
-                          currentSortOrder={pagination.sortOrder}
-                          onSort={pagination.setSorting}
-                        />
-                        <TableHead className="text-right">Ações</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {loading ? (
-                        <TableRow>
-                          <TableCell colSpan={3} className="text-center py-10">
-                            <div className="flex items-center justify-center gap-2">
-                              <Loader2 className="h-6 w-6 animate-spin text-green-600" />
-                              <span className="text-slate-500">Carregando unidades...</span>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ) : paginatedData.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={3} className="text-center py-10 text-muted-foreground">
-                            {searchTerm ? "Nenhuma unidade encontrada para a pesquisa." : "Nenhuma unidade cadastrada."}
-                          </TableCell>
-                        </TableRow>
-                      ) : (
-                        paginatedData.map((u) => (
-                          <TableRow key={u.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                            <TableCell className="font-medium">{u.apelido}</TableCell>
-                            <TableCell>{u.abreviatura || "-"}</TableCell>
-                            <TableCell className="text-right">
-                              <div className="flex justify-end gap-2">
-                                {hasPermission('admin.coordenar_unidades', 'criar_editar') && (
-                                  <Button variant="ghost" size="icon" onClick={() => handleEdit(u)} title="Editar">
-                                    <Pencil className="h-4 w-4 text-green-600" />
-                                  </Button>
-                                )}
-                                {hasPermission('admin.coordenar_unidades', 'deletar') && (
-                                  <Button variant="ghost" size="icon" onClick={() => handleDelete(u)} title="Excluir">
-                                    <Trash2 className="h-4 w-4 text-red-600" />
-                                  </Button>
-                                )}
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        ))
-                      )}
-                    </TableBody>
-                  </Table>
-                </div>
-
-                {filteredAndSorted.length > 0 && (
-                  <div className="mt-4">
-                    <Pagination
-                      currentPage={pagination.currentPage}
-                      totalPages={totalPages}
-                      totalItems={filteredAndSorted.length}
-                      itemsPerPage={pagination.itemsPerPage}
-                      onPageChange={pagination.setPage}
-                      onItemsPerPageChange={pagination.setItemsPerPage}
-                    />
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </motion.div>
-        </motion.div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+        </div>
       </div>
 
-      {isModalOpen && (
-        <BusinessUnitModal unidade={selectedUnidade} onClose={handleModalClose} />
-      )}
-
-      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-red-600">
-              <Trash2 className="h-5 w-5" />
-              Confirmar Exclusão
-            </DialogTitle>
-            <DialogDescription className="pt-2">
-              Tem certeza que deseja excluir a unidade{" "}
-              <span className="font-bold text-slate-900 dark:text-slate-100">{unidadeToDelete?.apelido}</span>?
-              <br />
-              <span className="text-red-500 text-sm mt-2 block">
-                Esta ação não pode ser desfeita.
-              </span>
-            </DialogDescription>
+            <DialogTitle>Nova Unidade de Negócio</DialogTitle>
           </DialogHeader>
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => { setIsDeleteDialogOpen(false); setUnidadeToDelete(null) }} disabled={isDeleting}>
-              Cancelar
-            </Button>
-            <Button variant="destructive" onClick={confirmDelete} disabled={isDeleting}>
-              {isDeleting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Excluir
-            </Button>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Company</Label>
+              <Select value={form.companyId} onValueChange={(value) => setForm((prev) => ({ ...prev, companyId: value }))}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione a company" />
+                </SelectTrigger>
+                <SelectContent>
+                  {companies.map((company) => (
+                    <SelectItem key={company.id} value={String(company.id)}>
+                      {company.nome}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="unidade-nome">Nome</Label>
+              <Input id="unidade-nome" value={form.nome} onChange={(e) => setForm((prev) => ({ ...prev, nome: e.target.value }))} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="unidade-abreviatura">Abreviatura</Label>
+              <Input id="unidade-abreviatura" value={form.abreviatura} onChange={(e) => setForm((prev) => ({ ...prev, abreviatura: e.target.value }))} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancelar</Button>
+            <Button onClick={() => void handleCreate()} disabled={saving}>Salvar</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

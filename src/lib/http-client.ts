@@ -1,7 +1,7 @@
 import axios, { AxiosError, AxiosInstance, InternalAxiosRequestConfig, AxiosResponse } from 'axios'
 
-// Sempre usa o proxy Next.js — necessário para bridge HTTPS (frontend) → HTTP (API backend)
-const API_BASE_URL = '/api/proxy'
+// Usa a rewrite estável do Next.js para encaminhar chamadas ao backend Symfony.
+const API_BASE_URL = '/api/backend'
 
 class HttpClient {
   private client: AxiosInstance

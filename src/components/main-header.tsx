@@ -1,40 +1,21 @@
 "use client"
 
 import React from "react"
-import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import {
   ChevronDown,
-  Settings,
   User,
-  FileText,
-  DollarSign,
-  Database,
   CircleHelp,
   LogOut,
-  BarChart2,
   Users,
-  Wallet,
-  LayoutGrid,
-  Ship,
-  Receipt,
-  PieChart,
-  Landmark,
-  Briefcase,
-  BarChart,
-  Newspaper,
   CreditCard,
-  Anchor,
   Lock,
-  Key,
-  Barcode,
-  Building2,
-  Building,
   Search,
   Command,
   Activity,
-  ReceiptText,
+  LayoutGrid,
+  Shield,
 } from "lucide-react"
 import Image from "next/image"
 import { ModeToggle } from "./ModeToggle"
@@ -42,24 +23,33 @@ import LogoDarkTheme from "../app/assets/img/Logo-branco.png"
 import Link from "next/link"
 import { useAuth } from "@/app/contexts/auth-context"
 import { CommandPalette } from "./command-palette"
+import { getNavigationCatalog, resolveNavigationIcon } from "@/lib/navigation-catalog"
+import type { NavigationCategory } from "@/types/navigation"
 
 export function MainHeader() {
-  const router = useRouter()
   const { signOut, user, canAccess } = useAuth()
+  const navigationCatalog = React.useMemo(
+    () => getNavigationCatalog(user?.menu as NavigationCategory[] | undefined),
+    [user?.menu]
+  )
 
   const openCommandPalette = () => {
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }))
   }
 
   // Filtrar menu por permissoes
-  const filteredMenuItems = menuItems
+  const filteredMenuItems = navigationCatalog
     .map(category => ({
       ...category,
+      icon: resolveCategoryIcon(category.code),
       items: category.items.filter(item => {
         if (item.locked) return true // Itens locked sempre aparecem (desabilitados)
         if (!item.permissionKey) return true // Sem permissionKey = sempre visivel
         return canAccess(item.permissionKey, 'ver')
-      })
+      }).map(item => ({
+        ...item,
+        icon: React.createElement(resolveNavigationIcon(item.iconKey), { size: 16, className: "mr-2 text-slate-500" }),
+      })),
     }))
     .filter(category => category.items.length > 0)
 
@@ -70,7 +60,7 @@ export function MainHeader() {
         <div className="flex items-center h-14 w-full px-4 md:px-6 lg:px-8">
           {/* Logo */}
           <div className="flex items-center flex-shrink-0">
-            <Link href="/financeiro">
+            <Link href="/">
               <div className="flex items-center gap-2.5 group">
                 <div className="relative">
                   <div className="absolute inset-0 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl blur-md opacity-40 group-hover:opacity-60 transition-opacity" />
@@ -78,9 +68,7 @@ export function MainHeader() {
                     <Image
                       src={LogoDarkTheme || "/placeholder.svg"}
                       alt="Prosperium Logo"
-                      width={24}
-                      height={24}
-                      style={{ width: "auto", height: "auto" }}
+                      style={{ width: "auto", height: 24 }}
                       className="rounded"
                     />
                   </div>
@@ -172,13 +160,30 @@ export function MainHeader() {
             </button>
 
             <div className="lg:hidden ml-0.5">
-              <MobileMenu />
+              <MobileMenu menuItems={navigationCatalog} />
             </div>
           </div>
         </div>
       </header>
     </>
   )
+}
+
+function resolveCategoryIcon(categoryCode?: string) {
+  switch (categoryCode) {
+    case "admin":
+      return <Shield size={16} className="text-indigo-500" />
+    case "configuracoes":
+      return <CreditCard size={16} className="text-cyan-500" />
+    case "cadastros":
+      return <Users size={16} className="text-blue-500" />
+    case "relatorios":
+      return <Activity size={16} className="text-emerald-500" />
+    case "asaas":
+      return <CreditCard size={16} className="text-amber-500" />
+    default:
+      return <LayoutGrid size={16} className="text-amber-500" />
+  }
 }
 
 interface NavDropdownProps {
@@ -258,25 +263,27 @@ function NavDropdown({ icon, label, items, locked = false }: NavDropdownProps) {
   )
 }
 
-function MobileMenu() {
+function MobileMenu({ menuItems }: { menuItems: NavigationCategory[] }) {
   const [expandedCategories, setExpandedCategories] = React.useState<Record<string, boolean>>({
     Administrador: true,
-    Configuracoes: true,
+    Configurações: true,
     Cadastros: true,
     Financeiro: true,
-    Relatorios: true,
-    Asaas: true,
   })
   const { signOut, canAccess } = useAuth()
 
   const filteredMenuItems = menuItems
     .map(category => ({
       ...category,
+      icon: resolveCategoryIcon(category.code),
       items: category.items.filter(item => {
         if (item.locked) return true
         if (!item.permissionKey) return true
         return canAccess(item.permissionKey, 'ver')
-      })
+      }).map(item => ({
+        ...item,
+        icon: React.createElement(resolveNavigationIcon(item.iconKey), { size: 16, className: "mr-2 text-slate-500" }),
+      })),
     }))
     .filter(category => category.items.length > 0)
 
@@ -402,105 +409,3 @@ function MobileMenu() {
     </DropdownMenu>
   )
 }
-
-const menuItems = [
-  {
-    icon: <User size={16} className="text-blue-500" />,
-    label: "Administrador",
-    items: [
-      {
-        label: "Coordenar Empresas",
-        icon: <Building2 size={16} className="mr-2 text-blue-500" />,
-        href: "/admin/coordenar-empresas",
-        permissionKey: "admin.coordenar_unidades",
-      },
-      {
-        label: "Coordenar Unidades",
-        icon: <Building size={16} className="mr-2 text-green-500" />,
-        href: "/admin/coordenar-unidades",
-        permissionKey: "admin.coordenar_unidades",
-      },
-      {
-        label: "Parametrizacao do sistema",
-        icon: <Settings size={16} className="mr-2 text-indigo-500" />,
-        href: "/admin/parametrizacao-sistema",
-        permissionKey: "admin.coordenar_unidades",
-      },
-      {
-        label: "Permissoes",
-        icon: <Settings size={16} className="mr-2 text-slate-500" />,
-        href: "/admin/permissoes",
-        permissionKey: "admin.permissoes",
-      },
-      {
-        label: "Logs de Auditoria",
-        icon: <Activity size={16} className="mr-2 text-slate-500" />,
-        href: "/admin/logs",
-        permissionKey: "admin.logs",
-      },
-      {
-        label: "Importacao de dados",
-        icon: <Database size={16} className="mr-2 text-slate-500" />,
-        href: "/admin/importacao",
-        permissionKey: "admin.importacao",
-      },
-      {
-        label: "Zerar sistema",
-        color: "text-red-500 dark:text-red-400",
-        icon: <LogOut size={16} className="mr-2 text-red-500 dark:text-red-400" />,
-        href: "/admin/zerar-sistema",
-        locked: true,
-      },
-    ],
-  },
-  {
-    icon: <Settings size={16} className="text-indigo-500" />,
-    label: "Configuracoes",
-    items: [
-      { label: "Contabilidade", href: "/contabilidade", icon: <Landmark size={16} className="mr-2 text-slate-500" />, permissionKey: "configuracoes.contabilidade" },
-      { label: "Configurar DRE", href: "/contabeis/dre/configuracao", icon: <BarChart size={16} className="mr-2 text-slate-500" />, permissionKey: "configuracoes.dre" },
-    ],
-  },
-  {
-    icon: <Database size={16} className="text-emerald-500" />,
-    label: "Cadastros",
-    items: [
-      { label: "Agencias bancarias", href: "/cadastros/agencias-bancarias", icon: <Landmark size={16} className="mr-2 text-slate-500" />, permissionKey: "cadastros.agencias_bancarias" },
-      { label: "Contas caixa", href: "/cadastros/contas-caixa", icon: <Wallet size={16} className="mr-2 text-slate-500" />, permissionKey: "cadastros.contas_caixa" },
-      { label: "Formas de pagamento", href: "/cadastros/formas-pagamento", icon: <CreditCard size={16} className="mr-2 text-slate-500" />, permissionKey: "cadastros.formas_pagamento" },
-      { label: "Centros de custo", href: "/cadastros/centros-custo", icon: <Building size={16} className="mr-2 text-slate-500" />, permissionKey: "" },
-      { label: "Navios", href: "/cadastros/navios", icon: <Ship size={16} className="mr-2 text-slate-500" />, permissionKey: "cadastros.navios" },
-      { label: "Operacoes", href: "/cadastros/operacoes", icon: <Briefcase size={16} className="mr-2 text-slate-500" />, permissionKey: "cadastros.operacoes" },
-      { label: "Pessoas", href: "/cadastros/pessoas", icon: <Users size={16} className="mr-2 text-slate-500" />, permissionKey: "cadastros.pessoas" },
-      { label: "Portos", href: "/cadastros/portos", icon: <Anchor size={16} className="mr-2 text-slate-500" />, permissionKey: "cadastros.portos" },
-    ],
-  },
-  {
-    icon: <DollarSign size={16} className="text-amber-500" />,
-    label: "Financeiro",
-    items: [
-      { label: "Novo lancamento", href: "/financeiro/lancamento", icon: <Newspaper size={16} className="mr-2 text-slate-500" />, permissionKey: "financeiro.novo_lancamento" },
-      { label: "Transf. entre contas", href: "/financeiro/transferencia", icon: <Wallet size={16} className="mr-2 text-slate-500" />, permissionKey: "financeiro.transferencia" },
-      { label: "Cartoes", href: "/financeiro/cartao", icon: <CreditCard size={16} className="mr-2 text-slate-500" />, permissionKey: "cadastros.cartoes" },
-    ],
-  },
-  {
-    icon: <FileText size={16} className="text-purple-500" />,
-    label: "Relatorios",
-    items: [
-      { label: "DRE", href: "/contabeis/dre", icon: <PieChart size={16} className="mr-2 text-slate-500" />, permissionKey: "relatorios.dre" },
-      { label: "Resultado por Navio", href: "/relatorios/resultado-navio", icon: <Ship size={16} className="mr-2 text-slate-500" />, permissionKey: "relatorios.resultado_navio" },
-      { label: "Relatório de Custeio", href: "/relatorios/custeio", icon: <ReceiptText size={16} className="mr-2 text-slate-500" />, permissionKey: "relatorios.custeio" },
-      { label: "Movimento Contabilidade", href: "/movimento/contabilidade", icon: <Receipt size={16} className="mr-2 text-slate-500" />, permissionKey: "relatorios.movimento_contabilidade" },
-    ],
-  },
-  {
-    icon: <Barcode size={16} className="text-orange-500" />,
-    label: "Asaas",
-    items: [
-      { label: "Boletos e Cobrancas", href: "/asaas/boletos", icon: <Barcode size={16} className="mr-2 text-slate-500" />, permissionKey: "asaas.boletos" },
-      { label: "Notas Fiscais", href: "/asaas/notas-fiscais", icon: <FileText size={16} className="mr-2 text-slate-500" />, permissionKey: "asaas.notas_fiscais" },
-      { label: "Configuracao", href: "/asaas/configuracao", icon: <Key size={16} className="mr-2 text-slate-500" />, permissionKey: "asaas.configuracao" },
-    ],
-  },
-]

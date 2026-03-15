@@ -50,8 +50,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const hasPermission = useCallback((modulo: string, operacao: 'ver' | 'criar_editar' | 'deletar'): boolean => {
     if (!user) return false
-    // Admin/Root bypass
-    if (user.roles?.includes('ROLE_ROOT') || user.roles?.includes('ROLE_ADMIN')) return true
+    if (user.roles?.includes('ROLE_ROOT')) return true
     const perm = user.permissoes_modulo?.[modulo]
     if (!perm) return false
     return perm[operacao]
@@ -67,26 +66,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     try {
       const response = await authService.login(email, password)
+      setUser(response.user)
+      setLoading(false)
 
-      if (response.operador) {
-        const userData: AuthUser = {
-          ...response.operador,
-          roles: response.operador.roles,
-          permissoes_modulo: response.permissoes_modulo,
-          modulos_habilitados: response.modulos_habilitados,
-        }
-        setUser(userData)
-        setLoading(false)
+      customToast.success(`Bem-vindo(a), ${response.user.nome}!`, {
+        position: 'top-right',
+        autoClose: 3000
+      })
 
-        customToast.success(`Bem-vindo(a), ${response.operador.nome}!`, {
-          position: 'top-right',
-          autoClose: 3000
-        })
-
-        router.push("/financeiro")
-      } else {
-        throw new Error("Email ou senha incorretos. Verifique suas credenciais.")
-      }
+      router.push("/")
     } catch (err: any) {
       console.error("Error signing in:", err)
 
@@ -137,7 +125,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         autoClose: 2000
       })
 
-      router.push("/")
+      router.push("/login")
     } catch (err: any) {
       console.error("Error signing out:", err)
       setError(err.message || "Falha ao sair")

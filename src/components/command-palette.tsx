@@ -12,104 +12,21 @@ import {
   CommandList,
   CommandSeparator,
 } from "@/components/ui/command"
-import {
-  Building2,
-  Building,
-  Settings,
-  Database,
-  Landmark,
-  Wallet,
-  CreditCard,
-  Ship,
-  Briefcase,
-  Users,
-  Anchor,
-  Newspaper,
-  PieChart,
-  Receipt,
-  Barcode,
-  Key,
-  LayoutGrid,
-  Lock,
-  type LucideIcon,
-} from "lucide-react"
-
-type NavigationItem = {
-  label: string
-  href: string
-  icon: LucideIcon
-  permissionKey?: string
-  locked?: boolean
-}
-
-type NavigationGroup = {
-  category: string
-  items: NavigationItem[]
-}
-
-const navigationItems: NavigationGroup[] = [
-  {
-    category: "Administrador",
-    items: [
-      { label: "Coordenar Empresas", href: "/admin/coordenar-empresas", icon: Building2, permissionKey: "admin.coordenar_unidades" },
-      { label: "Coordenar Unidades", href: "/admin/coordenar-unidades", icon: Building, permissionKey: "admin.coordenar_unidades" },
-      { label: "Parametrização do sistema", href: "/admin/parametrizacao-sistema", icon: Settings, permissionKey: "admin.coordenar_unidades" },
-      { label: "Permissões", href: "/admin/permissoes", icon: Settings, permissionKey: "admin.permissoes" },
-      { label: "Importação de dados", href: "/admin/importacao", icon: Database, permissionKey: "admin.importacao", locked: true },
-    ],
-  },
-  {
-    category: "Configurações",
-    items: [
-      { label: "Contabilidade", href: "/contabilidade", icon: Landmark, permissionKey: "configuracoes.contabilidade" },
-    ],
-  },
-  {
-    category: "Cadastros",
-    items: [
-      { label: "Agências bancárias", href: "/cadastros/agencias-bancarias", icon: Landmark, permissionKey: "cadastros.agencias_bancarias" },
-      { label: "Contas caixa", href: "/cadastros/contas-caixa", icon: Wallet, permissionKey: "cadastros.contas_caixa" },
-      { label: "Formas de pagamento", href: "/cadastros/formas-pagamento", icon: CreditCard, permissionKey: "cadastros.formas_pagamento" },
-      { label: "Navios", href: "/cadastros/navios", icon: Ship, permissionKey: "cadastros.navios" },
-      { label: "Operações", href: "/cadastros/operacoes", icon: Briefcase, permissionKey: "cadastros.operacoes" },
-      { label: "Pessoas", href: "/cadastros/pessoas", icon: Users, permissionKey: "cadastros.pessoas" },
-      { label: "Portos", href: "/cadastros/portos", icon: Anchor, permissionKey: "cadastros.portos" },
-    ],
-  },
-  {
-    category: "Financeiro",
-    items: [
-      { label: "Dashboard", href: "/financeiro", icon: LayoutGrid },
-      { label: "Novo lançamento", href: "/financeiro/lancamento", icon: Newspaper, permissionKey: "financeiro.novo_lancamento" },
-      { label: "Transf. entre contas", href: "/financeiro/transferencia", icon: Wallet, permissionKey: "financeiro.transferencia" },
-    ],
-  },
-  {
-    category: "Relatórios",
-    items: [
-      { label: "DRE", href: "/contabeis/dre", icon: PieChart, permissionKey: "relatorios.dre" },
-      { label: "Resultado por Navio", href: "/relatorios/resultado-navio", icon: Ship, permissionKey: "relatorios.resultado_navio" },
-      { label: "Movimento Contabilidade", href: "/movimento/contabilidade", icon: Receipt, permissionKey: "relatorios.movimento_contabilidade" },
-    ],
-  },
-  {
-    category: "Asaas",
-    items: [
-      { label: "Boletos e Cobranças", href: "/asaas/boletos", icon: Barcode, permissionKey: "asaas.boletos" },
-      { label: "Configuração Asaas", href: "/asaas/configuracao", icon: Key, permissionKey: "asaas.configuracao" },
-    ],
-  },
-]
+import { LayoutGrid, type LucideIcon } from "lucide-react"
+import { getNavigationCatalog, resolveNavigationIcon } from "@/lib/navigation-catalog"
+import type { NavigationCategory } from "@/types/navigation"
 
 export function CommandPalette() {
   const [open, setOpen] = React.useState(false)
   const router = useRouter()
-  const { canAccess } = useAuth()
+  const { canAccess, user } = useAuth()
+
+  const navigationItems = React.useMemo(() => getNavigationCatalog(user?.menu as NavigationCategory[] | undefined), [user?.menu])
 
   const filteredItems = React.useMemo(() => (
     navigationItems
       .map((group) => ({
-        ...group,
+        category: group.label,
         items: group.items.filter((item) => {
           if (item.locked) return true
           if (!item.permissionKey) return true
@@ -117,7 +34,7 @@ export function CommandPalette() {
         }),
       }))
       .filter((group) => group.items.length > 0)
-  ), [canAccess])
+  ), [canAccess, navigationItems])
 
   React.useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -143,9 +60,9 @@ export function CommandPalette() {
         {filteredItems.map((group, idx) => (
           <React.Fragment key={group.category}>
             {idx > 0 && <CommandSeparator />}
-            <CommandGroup heading={group.category}>
+              <CommandGroup heading={group.category}>
               {group.items.map((item) => {
-                const Icon = item.icon
+                const Icon = resolveNavigationIcon(item.iconKey, LayoutGrid) as LucideIcon
                 return (
                   <CommandItem
                     key={item.href}
@@ -161,7 +78,6 @@ export function CommandPalette() {
                       <span className="text-sm font-medium">{item.label}</span>
                       <span className="text-xs text-muted-foreground">{group.category}</span>
                     </div>
-                    {item.locked && <Lock className="ml-auto h-3.5 w-3.5 text-slate-400" />}
                   </CommandItem>
                 )
               })}

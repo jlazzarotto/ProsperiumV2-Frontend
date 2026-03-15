@@ -2,19 +2,16 @@ import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
 // Rotas que NÃO precisam de autenticação
-const publicRoutes = ['/', '/login', '/definir-senha']
+const publicRoutes = ['/', '/login']
 
 // Rotas que precisam de autenticação
 const protectedRoutes = [
+  '/admin',
+  '/configuracoes',
   '/cadastros',
   '/financeiro',
   '/relatorios',
-  '/configuracoes',
-  '/admin',
-  '/contabeis',
-  '/movimento',
   '/asaas',
-  '/contabilidade',
 ]
 
 export function middleware(request: NextRequest) {
@@ -38,7 +35,7 @@ export function middleware(request: NextRequest) {
 
     // Se não tiver token, redirecionar para login
     if (!token) {
-      const loginUrl = new URL('/', request.url)
+      const loginUrl = new URL('/login', request.url)
       return NextResponse.redirect(loginUrl)
     }
   }
