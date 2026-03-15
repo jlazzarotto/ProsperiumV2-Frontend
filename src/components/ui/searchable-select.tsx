@@ -8,6 +8,7 @@ interface Option {
   value: string
   label: string | null | undefined
   description?: string | null
+  keywords?: string[]
 }
 
 interface SearchableSelectProps {
@@ -43,15 +44,41 @@ export function SearchableSelect({
   const optionsRef = useRef<HTMLDivElement>(null)
 
   const normalizeText = (text: string | null | undefined) => (text ?? "").toLowerCase()
+  const getSearchTexts = (option: Option) => [
+    normalizeText(option.label),
+    normalizeText(option.description),
+    ...(option.keywords ?? []).map(normalizeText),
+  ]
 
   const selectedOption = options.find(option => option.value === value && option.value !== "")
   
   const normalizedSearchTerm = normalizeText(searchTerm)
 
-  const filteredOptions = options.filter(option =>
-    normalizeText(option.label).includes(normalizedSearchTerm) ||
-    normalizeText(option.description).includes(normalizedSearchTerm)
-  )
+  const getMatchScore = (option: Option) => {
+    if (!normalizedSearchTerm) return 0
+
+    const texts = getSearchTexts(option).filter(Boolean)
+
+    if (texts.some((text) => text === normalizedSearchTerm)) return 400
+    if (texts.some((text) => text.startsWith(normalizedSearchTerm))) return 300
+
+    const wordBoundaryMatch = texts.some((text) =>
+      text.split(/\s+/).some((word) => word.startsWith(normalizedSearchTerm))
+    )
+    if (wordBoundaryMatch) return 200
+
+    if (texts.some((text) => text.includes(normalizedSearchTerm))) return 100
+    return -1
+  }
+
+  const filteredOptions = options
+    .map((option) => ({ option, score: getMatchScore(option) }))
+    .filter(({ score }) => normalizedSearchTerm ? score >= 0 : true)
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score
+      return normalizeText(a.option.label).localeCompare(normalizeText(b.option.label))
+    })
+    .map(({ option }) => option)
 
   useEffect(() => {
     if (isOpen && searchInputRef.current) {

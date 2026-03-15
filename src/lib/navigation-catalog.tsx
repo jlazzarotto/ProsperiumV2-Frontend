@@ -64,7 +64,7 @@ export const DEFAULT_NAVIGATION: NavigationCategory[] = [
       { label: "Parametrização do sistema", href: "/admin/parametrizacao-sistema", iconKey: "sliders-horizontal", permissionKey: "admin.parametrizacao_sistema" },
       { label: "Permissões", href: "/admin/permissoes", iconKey: "shield", permissionKey: "admin.permissoes" },
       { label: "Logs de Auditoria", href: "/admin/logs", iconKey: "activity", permissionKey: "admin.logs_auditoria" },
-      { label: "Importação de Dados", href: "/admin/importacao-dados", iconKey: "database-zap", permissionKey: "admin.importacao_dados" },
+      { label: "Porto Sem Papel (PSP)", href: "/admin/importacao-dados", iconKey: "database-zap", permissionKey: "admin.importacao_dados" },
     ],
   },
   {
@@ -80,8 +80,7 @@ export const DEFAULT_NAVIGATION: NavigationCategory[] = [
     code: "cadastros",
     label: "Cadastros",
     items: [
-      { label: "Agência Bancária", href: "/cadastros/agencias-bancarias", iconKey: "landmark", permissionKey: "cadastros.agencias_bancarias" },
-      { label: "Contas Caixa", href: "/cadastros/contas-caixa", iconKey: "wallet", permissionKey: "cadastros.contas_caixa" },
+      { label: "Contas Financeiras", href: "/cadastros/contas-financeiras", iconKey: "wallet", permissionKey: "cadastros.contas_financeiras" },
       { label: "Forma de Pagamento", href: "/cadastros/formas-pagamento", iconKey: "credit-card", permissionKey: "cadastros.formas_pagamento" },
       { label: "Pessoa", href: "/cadastros/pessoas", iconKey: "users", permissionKey: "cadastros.pessoas" },
     ],

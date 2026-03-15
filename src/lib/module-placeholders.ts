@@ -5,8 +5,8 @@ export const MODULE_PLACEHOLDERS: Record<string, { title: string; description: s
     moduleKey: "admin.parametrizacao_sistema",
   },
   "admin/importacao-dados": {
-    title: "Importação de Dados",
-    description: "Tela placeholder para fluxos de importação assistida, staging e reconciliação de dados legados.",
+    title: "Porto Sem Papel (PSP)",
+    description: "Tela placeholder para operação assistida da integração com o Porto Sem Papel.",
     moduleKey: "admin.importacao_dados",
   },
   "configuracoes/contabilidade": {
@@ -29,10 +29,10 @@ export const MODULE_PLACEHOLDERS: Record<string, { title: string; description: s
     description: "Tela placeholder para manutenção de agências bancárias.",
     moduleKey: "cadastros.agencias_bancarias",
   },
-  "cadastros/contas-caixa": {
-    title: "Contas Caixa",
-    description: "Tela placeholder para gestão de contas caixa e contas financeiras.",
-    moduleKey: "cadastros.contas_caixa",
+  "cadastros/contas-financeiras": {
+    title: "Contas Financeiras",
+    description: "Tela placeholder para gestão de contas financeiras da operação.",
+    moduleKey: "cadastros.contas_financeiras",
   },
   "cadastros/formas-pagamento": {
     title: "Forma de Pagamento",
