@@ -20,6 +20,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -56,6 +57,7 @@ type PessoaStatus = "active" | "inactive"
 type CapaForm = {
   companyId: string
   tipoPessoa: "PF" | "PJ"
+  classificacao: { C: boolean; F: boolean; U: boolean }
   nomeRazao: string
   nomeFantasia: string
   documento: string
@@ -89,6 +91,7 @@ type ContatoForm = {
 const EMPTY_CAPA: CapaForm = {
   companyId: "",
   tipoPessoa: "PF",
+  classificacao: { C: false, F: false, U: false },
   nomeRazao: "",
   nomeFantasia: "",
   documento: "",
@@ -96,6 +99,16 @@ const EMPTY_CAPA: CapaForm = {
   emailPrincipal: "",
   telefonePrincipal: "",
   status: "active",
+}
+
+function parseClassificacao(value?: string | null): { C: boolean; F: boolean; U: boolean } {
+  const str = (value ?? "").toUpperCase()
+  return { C: str.includes("C"), F: str.includes("F"), U: str.includes("U") }
+}
+
+function serializeClassificacao(obj: { C: boolean; F: boolean; U: boolean }): string | null {
+  const result = (obj.C ? "C" : "") + (obj.F ? "F" : "") + (obj.U ? "U" : "")
+  return result || null
 }
 
 const EMPTY_ENDERECO: EnderecoForm = {
@@ -125,6 +138,7 @@ function mapPessoaToForm(p: PessoaItem): CapaForm {
   return {
     companyId: String(p.companyId),
     tipoPessoa: p.tipoPessoa,
+    classificacao: parseClassificacao(p.classificacao),
     nomeRazao: p.nomeRazao ?? "",
     nomeFantasia: p.nomeFantasia ?? "",
     documento: p.documento ?? "",
@@ -328,6 +342,7 @@ export default function PessoasPage() {
     try {
       const payload = {
         tipoPessoa: capaForm.tipoPessoa,
+        classificacao: serializeClassificacao(capaForm.classificacao),
         nomeRazao: capaForm.nomeRazao,
         nomeFantasia: capaForm.nomeFantasia || null,
         documento: capaForm.documento ? unmaskNumbers(capaForm.documento) : null,
@@ -612,6 +627,7 @@ export default function PessoasPage() {
                   <thead>
                     <tr className="border-b border-slate-100 dark:border-slate-800">
                       <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 dark:text-slate-400">Tipo</th>
+                      <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 dark:text-slate-400 hidden sm:table-cell">Classificação</th>
                       <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 dark:text-slate-400">Nome / Razão Social</th>
                       <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 dark:text-slate-400 hidden md:table-cell">Documento</th>
                       <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 dark:text-slate-400 hidden lg:table-cell">E-mail</th>
@@ -626,6 +642,19 @@ export default function PessoasPage() {
                           <Badge variant="outline" className={cn("text-[10px] font-semibold", p.tipoPessoa === "PJ" ? "text-amber-700 border-amber-200 bg-amber-50 dark:bg-amber-950/20" : "text-indigo-700 border-indigo-200 bg-indigo-50 dark:bg-indigo-950/20")}>
                             {p.tipoPessoa}
                           </Badge>
+                        </td>
+                        <td className="px-4 py-3 hidden sm:table-cell">
+                          <div className="flex gap-1">
+                            {p.classificacao ? (
+                              <>
+                                {p.classificacao.includes("C") && <Badge variant="outline" className="text-[9px] px-1.5 py-0 border-blue-200 bg-blue-50 text-blue-700 dark:bg-blue-950/20">C</Badge>}
+                                {p.classificacao.includes("F") && <Badge variant="outline" className="text-[9px] px-1.5 py-0 border-orange-200 bg-orange-50 text-orange-700 dark:bg-orange-950/20">F</Badge>}
+                                {p.classificacao.includes("U") && <Badge variant="outline" className="text-[9px] px-1.5 py-0 border-green-200 bg-green-50 text-green-700 dark:bg-green-950/20">U</Badge>}
+                              </>
+                            ) : (
+                              <span className="text-slate-400 text-xs">—</span>
+                            )}
+                          </div>
                         </td>
                         <td className="px-4 py-3">
                           <div className="font-medium text-slate-900 dark:text-slate-100">{p.nomeRazao}</div>
@@ -755,6 +784,29 @@ export default function PessoasPage() {
                         <SelectItem value="inactive">Inativo</SelectItem>
                       </SelectContent>
                     </Select>
+                  </Field>
+                  <Field label="Classificacao" className="sm:col-span-2">
+                    <div className="flex items-center gap-6 pt-1">
+                      {([
+                        { key: "C" as const, label: "Cliente" },
+                        { key: "F" as const, label: "Fornecedor" },
+                        { key: "U" as const, label: "Colaborador" },
+                      ]).map(({ key, label }) => (
+                        <label key={key} className="flex items-center gap-2 cursor-pointer">
+                          <Checkbox
+                            checked={capaForm.classificacao[key]}
+                            onCheckedChange={(checked) =>
+                              setCapaForm((f) => ({
+                                ...f,
+                                classificacao: { ...f.classificacao, [key]: !!checked },
+                              }))
+                            }
+                            disabled={!canCreate && !canEdit}
+                          />
+                          <span className="text-sm text-slate-700">{label}</span>
+                        </label>
+                      ))}
+                    </div>
                   </Field>
                 </FormSection>
 

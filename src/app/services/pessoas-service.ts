@@ -4,6 +4,7 @@ export interface PessoaItem {
   id: number
   companyId: number
   tipoPessoa: 'PF' | 'PJ'
+  classificacao?: string | null
   nomeRazao: string
   nomeFantasia?: string | null
   documento?: string | null
@@ -72,6 +73,7 @@ export async function getPessoa(id: number): Promise<PessoaItem> {
 export async function createPessoa(payload: {
   companyId: number
   tipoPessoa: 'PF' | 'PJ'
+  classificacao?: string | null
   nomeRazao: string
   nomeFantasia?: string | null
   documento?: string | null
@@ -86,6 +88,7 @@ export async function createPessoa(payload: {
 
 export async function updatePessoa(id: number, payload: {
   tipoPessoa: 'PF' | 'PJ'
+  classificacao?: string | null
   nomeRazao: string
   nomeFantasia?: string | null
   documento?: string | null

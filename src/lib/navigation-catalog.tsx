@@ -62,9 +62,9 @@ export const DEFAULT_NAVIGATION: NavigationCategory[] = [
       { label: "Coordenar Empresas", href: "/admin/coordenar-empresas", iconKey: "building-2", permissionKey: "admin.coordenar_empresas" },
       { label: "Coordenar Unidades", href: "/admin/coordenar-unidades", iconKey: "building", permissionKey: "admin.coordenar_unidades" },
       { label: "Parametrização do sistema", href: "/admin/parametrizacao-sistema", iconKey: "sliders-horizontal", permissionKey: "admin.parametrizacao_sistema" },
-      { label: "Permissões", href: "/admin/permissoes", iconKey: "shield", permissionKey: "admin.permissoes" },
-      { label: "Logs de Auditoria", href: "/admin/logs", iconKey: "activity", permissionKey: "admin.logs_auditoria" },
-      { label: "Porto Sem Papel (PSP)", href: "/admin/importacao-dados", iconKey: "database-zap", permissionKey: "admin.importacao_dados" },
+      // { label: "Permissões", href: "/admin/permissoes", iconKey: "shield", permissionKey: "admin.permissoes" },
+      // { label: "Logs de Auditoria", href: "/admin/logs", iconKey: "activity", permissionKey: "admin.logs_auditoria" },
+      // { label: "Porto Sem Papel (PSP)", href: "/admin/importacao-dados", iconKey: "database-zap", permissionKey: "admin.importacao_dados" },
     ],
   },
   {
