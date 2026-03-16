@@ -161,7 +161,7 @@ function LoginForm({ className, ...props }: React.ComponentPropsWithoutRef<"div"
 
       {/* Reset password dialog */}
       <Dialog open={showResetPassword} onOpenChange={setShowResetPassword}>
-        <DialogContent className="sm:max-w-[425px] rounded-2xl">
+        <DialogContent aria-describedby={undefined} className="sm:max-w-[425px] rounded-2xl">
           <DialogHeader>
             <DialogTitle className="text-xl font-bold text-slate-900 dark:text-white">Redefinir Senha</DialogTitle>
           </DialogHeader>

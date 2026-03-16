@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { Briefcase, Plus, RefreshCw } from "lucide-react"
+import { Briefcase, Pencil, Plus, RefreshCw } from "lucide-react"
 import { MainHeader } from "@/components/main-header"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge"
 import customToast from "@/components/ui/custom-toast"
 import { useAuth } from "@/app/contexts/auth-context"
-import { createUnidade, getCompanies, getUnidades, type CompanyItem, type UnidadeItem } from "@/app/services/core-saas-service"
+import { createUnidade, getCompanies, getUnidades, updateUnidade, type CompanyItem, type UnidadeItem } from "@/app/services/core-saas-service"
 
 export default function CoordenarUnidadesPage() {
   const { user } = useAuth()
@@ -21,6 +21,7 @@ export default function CoordenarUnidadesPage() {
   const [companies, setCompanies] = useState<CompanyItem[]>([])
   const [unidades, setUnidades] = useState<UnidadeItem[]>([])
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [editingUnidade, setEditingUnidade] = useState<UnidadeItem | null>(null)
   const [form, setForm] = useState({ companyId: "", nome: "", abreviatura: "" })
 
   const isRoot = user?.role === "ROLE_ROOT"
@@ -62,7 +63,19 @@ export default function CoordenarUnidadesPage() {
     }
   }, [defaultCompanyId, form.companyId])
 
-  const handleCreate = async () => {
+  const openCreate = () => {
+    setEditingUnidade(null)
+    setForm({ companyId: defaultCompanyId, nome: "", abreviatura: "" })
+    setDialogOpen(true)
+  }
+
+  const openEdit = (unidade: UnidadeItem) => {
+    setEditingUnidade(unidade)
+    setForm({ companyId: String(unidade.companyId), nome: unidade.nome, abreviatura: unidade.abreviatura })
+    setDialogOpen(true)
+  }
+
+  const handleSave = async () => {
     if (!form.companyId || !form.nome.trim() || !form.abreviatura.trim()) {
       customToast.error("Preencha company, nome e abreviatura.")
       return
@@ -70,18 +83,29 @@ export default function CoordenarUnidadesPage() {
 
     setSaving(true)
     try {
-      await createUnidade({
-        companyId: Number(form.companyId),
-        nome: form.nome.trim(),
-        abreviatura: form.abreviatura.trim(),
-      })
+      if (editingUnidade) {
+        await updateUnidade(editingUnidade.id, {
+          companyId: Number(form.companyId),
+          nome: form.nome.trim(),
+          abreviatura: form.abreviatura.trim(),
+          status: editingUnidade.status,
+        })
+        customToast.success("Unidade atualizada com sucesso.")
+      } else {
+        await createUnidade({
+          companyId: Number(form.companyId),
+          nome: form.nome.trim(),
+          abreviatura: form.abreviatura.trim(),
+        })
+        customToast.success("Unidade criada com sucesso.")
+      }
 
-      customToast.success("Unidade criada com sucesso.")
       setDialogOpen(false)
+      setEditingUnidade(null)
       setForm({ companyId: defaultCompanyId, nome: "", abreviatura: "" })
       await load()
     } catch (error: any) {
-      customToast.error(error?.response?.data?.error?.message || error?.message || "Erro ao criar unidade.")
+      customToast.error(error?.response?.data?.error?.message || error?.message || (editingUnidade ? "Erro ao atualizar unidade." : "Erro ao criar unidade."))
     } finally {
       setSaving(false)
     }
@@ -107,7 +131,7 @@ export default function CoordenarUnidadesPage() {
                 <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
                 Atualizar
               </Button>
-              <Button onClick={() => setDialogOpen(true)}>
+              <Button onClick={openCreate}>
                 <Plus className="mr-2 h-4 w-4" />
                 Nova Unidade
               </Button>
@@ -136,9 +160,14 @@ export default function CoordenarUnidadesPage() {
                           Abreviatura {unidade.abreviatura} • Company: {companiesById.get(unidade.companyId)?.nome || `#${unidade.companyId}`}
                         </div>
                       </div>
-                      <Badge variant={unidade.status === "active" ? "default" : "secondary"}>
-                        {unidade.status}
-                      </Badge>
+                      <div className="flex items-center gap-2">
+                        <Badge variant={unidade.status === "active" ? "default" : "secondary"}>
+                          {unidade.status}
+                        </Badge>
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(unidade)}>
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 ))
@@ -149,9 +178,9 @@ export default function CoordenarUnidadesPage() {
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent>
+        <DialogContent aria-describedby={undefined}>
           <DialogHeader>
-            <DialogTitle>Nova Unidade de Negócio</DialogTitle>
+            <DialogTitle>{editingUnidade ? "Editar Unidade de Negócio" : "Nova Unidade de Negócio"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
@@ -180,7 +209,7 @@ export default function CoordenarUnidadesPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancelar</Button>
-            <Button onClick={() => void handleCreate()} disabled={saving}>Salvar</Button>
+            <Button onClick={() => void handleSave()} disabled={saving}>Salvar</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

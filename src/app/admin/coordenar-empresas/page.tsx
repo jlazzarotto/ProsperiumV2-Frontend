@@ -1,44 +1,257 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
-import { Building2, ChevronDown, ChevronRight, Layers3, Pencil, Plus, RefreshCw } from "lucide-react"
+import { useEffect, useMemo, useState, type ReactNode } from "react"
+import {
+  ArrowLeft,
+  Building2,
+  Factory,
+  FileText,
+  Landmark,
+  MapPin,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Search,
+} from "lucide-react"
 import { MainHeader } from "@/components/main-header"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Badge } from "@/components/ui/badge"
-import customToast from "@/components/ui/custom-toast"
+import { Separator } from "@/components/ui/separator"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useAuth } from "@/app/contexts/auth-context"
-import { createCompany, createEmpresa, getCompanies, getEmpresas, updateCompany, updateEmpresa, type CompanyItem, type EmpresaItem } from "@/app/services/core-saas-service"
+import {
+  createEmpresa,
+  createCompany,
+  getCompanies,
+  getEmpresas,
+  getTenantOptions,
+  updateCompany,
+  updateEmpresa,
+  type CompanyItem,
+  type EmpresaItem,
+  type TenantOption,
+} from "@/app/services/core-saas-service"
+import customToast from "@/components/ui/custom-toast"
+import { cn } from "@/lib/utils"
+import { maskCEP, maskCNPJ, maskCPFOrCNPJ, unmaskCPFOrCNPJ, unmaskNumbers, validateCNPJ, validateCPF } from "@/lib/masks"
+
+type EmpresaStatus = "active" | "inactive"
+type GrupoEconomicoStatus = "active" | "inactive"
+
+type GrupoEconomicoForm = {
+  nome: string
+  tenancyMode: "shared" | "dedicated"
+  databaseKey: string
+  status: GrupoEconomicoStatus
+}
+
+type EmpresaForm = {
+  companyId: string
+  razaoSocial: string
+  apelido: string
+  abreviatura: string
+  cpfCnpj: string
+  inscricaoEstadual: string
+  inscricaoMunicipal: string
+  cep: string
+  estado: string
+  cidade: string
+  logradouro: string
+  numero: string
+  complemento: string
+  bairro: string
+  status: EmpresaStatus
+}
+
+const EMPRESA_FORM_INITIAL: EmpresaForm = {
+  companyId: "",
+  razaoSocial: "",
+  apelido: "",
+  abreviatura: "",
+  cpfCnpj: "",
+  inscricaoEstadual: "",
+  inscricaoMunicipal: "",
+  cep: "",
+  estado: "",
+  cidade: "",
+  logradouro: "",
+  numero: "",
+  complemento: "",
+  bairro: "",
+  status: "active",
+}
+
+const GRUPO_ECONOMICO_FORM_INITIAL: GrupoEconomicoForm = {
+  nome: "",
+  tenancyMode: "shared",
+  databaseKey: "",
+  status: "active",
+}
+
+const BRAZILIAN_STATES = [
+  "Acre",
+  "Alagoas",
+  "Amapa",
+  "Amazonas",
+  "Bahia",
+  "Ceara",
+  "Distrito Federal",
+  "Espirito Santo",
+  "Goias",
+  "Maranhao",
+  "Mato Grosso",
+  "Mato Grosso do Sul",
+  "Minas Gerais",
+  "Para",
+  "Paraiba",
+  "Parana",
+  "Pernambuco",
+  "Piaui",
+  "Rio de Janeiro",
+  "Rio Grande do Norte",
+  "Rio Grande do Sul",
+  "Rondonia",
+  "Roraima",
+  "Santa Catarina",
+  "Sao Paulo",
+  "Sergipe",
+  "Tocantins",
+] as const
+
+function normalizeStatus(status?: string | null): EmpresaStatus {
+  return status === "inactive" ? "inactive" : "active"
+}
+
+function extractDocument(empresa: EmpresaItem): string {
+  return String(empresa.cpfCnpj || empresa.cnpj || "")
+}
+
+function extractAddressField(empresa: EmpresaItem, field: keyof NonNullable<EmpresaItem["endereco"]>): string {
+  const nestedValue = empresa.endereco?.[field]
+  const flatValue = empresa[field]
+  return String(nestedValue || flatValue || "")
+}
+
+function mapEmpresaToForm(empresa: EmpresaItem): EmpresaForm {
+  return {
+    companyId: String(empresa.companyId),
+    razaoSocial: empresa.razaoSocial || "",
+    apelido: String(empresa.apelido || empresa.nomeFantasia || ""),
+    abreviatura: String(empresa.abreviatura || ""),
+    cpfCnpj: extractDocument(empresa),
+    inscricaoEstadual: String(empresa.inscricaoEstadual || ""),
+    inscricaoMunicipal: String(empresa.inscricaoMunicipal || ""),
+    cep: extractAddressField(empresa, "cep"),
+    estado: extractAddressField(empresa, "estado"),
+    cidade: extractAddressField(empresa, "cidade"),
+    logradouro: extractAddressField(empresa, "logradouro"),
+    numero: extractAddressField(empresa, "numero"),
+    complemento: extractAddressField(empresa, "complemento"),
+    bairro: extractAddressField(empresa, "bairro"),
+    status: normalizeStatus(empresa.status),
+  }
+}
+
+function buildEmpresaPayload(form: EmpresaForm) {
+  const cleanedDocument = unmaskCPFOrCNPJ(form.cpfCnpj)
+  const normalizedAbbreviation = form.abreviatura.trim().toUpperCase()
+
+  return {
+    companyId: Number(form.companyId),
+    razaoSocial: form.razaoSocial.trim(),
+    nomeFantasia: form.apelido.trim() || undefined,
+    apelido: form.apelido.trim() || undefined,
+    abreviatura: normalizedAbbreviation || undefined,
+    cnpj: cleanedDocument || undefined,
+    cpfCnpj: cleanedDocument || undefined,
+    inscricaoEstadual: form.inscricaoEstadual.trim() || undefined,
+    inscricaoMunicipal: form.inscricaoMunicipal.trim() || undefined,
+    cep: unmaskNumbers(form.cep) || undefined,
+    estado: form.estado.trim() || undefined,
+    cidade: form.cidade.trim() || undefined,
+    logradouro: form.logradouro.trim() || undefined,
+    numero: form.numero.trim() || undefined,
+    complemento: form.complemento.trim() || undefined,
+    bairro: form.bairro.trim() || undefined,
+    endereco: {
+      cep: unmaskNumbers(form.cep) || undefined,
+      estado: form.estado.trim() || undefined,
+      cidade: form.cidade.trim() || undefined,
+      logradouro: form.logradouro.trim() || undefined,
+      numero: form.numero.trim() || undefined,
+      complemento: form.complemento.trim() || undefined,
+      bairro: form.bairro.trim() || undefined,
+    },
+    status: form.status,
+  }
+}
+
+function validateDocument(document: string): boolean {
+  const cleaned = unmaskCPFOrCNPJ(document)
+  if (!cleaned) return true
+  if (cleaned.length === 11) return validateCPF(cleaned)
+  if (cleaned.length === 14) return validateCNPJ(cleaned)
+  return false
+}
+
+function formatDocument(document?: string | null): string {
+  if (!document) return "Nao informado"
+  const cleaned = unmaskCPFOrCNPJ(document)
+  return cleaned.length === 14 ? maskCNPJ(cleaned) : document
+}
+
+function formatCompanyScope(company: CompanyItem, empresasCount: number) {
+  return `${company.nome} • ${empresasCount} empresa${empresasCount === 1 ? "" : "s"}`
+}
 
 export default function CoordenarEmpresasPage() {
-  const { user } = useAuth()
+  const { user, canAccess } = useAuth()
   const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
   const [companies, setCompanies] = useState<CompanyItem[]>([])
   const [empresas, setEmpresas] = useState<EmpresaItem[]>([])
-  const [companyDialogOpen, setCompanyDialogOpen] = useState(false)
+  const [tenantOptions, setTenantOptions] = useState<TenantOption[]>([])
+  const [filters, setFilters] = useState({
+    search: "",
+    status: "__all__",
+  })
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string>("")
+  const [grupoDialogOpen, setGrupoDialogOpen] = useState(false)
+  const [editingGroupId, setEditingGroupId] = useState<number | null>(null)
   const [empresaDialogOpen, setEmpresaDialogOpen] = useState(false)
-  const [editingCompanyId, setEditingCompanyId] = useState<number | null>(null)
   const [editingEmpresaId, setEditingEmpresaId] = useState<number | null>(null)
-  const [expandedCompanyIds, setExpandedCompanyIds] = useState<number[]>([])
-  const [companyForm, setCompanyForm] = useState({ nome: "", tenancyMode: "shared" as "shared" | "dedicated", databaseKey: "", status: "active" as "active" | "inactive" })
-  const [empresaForm, setEmpresaForm] = useState({ companyId: "", razaoSocial: "", nomeFantasia: "", cnpj: "", status: "active" as "active" | "inactive" })
-  const [saving, setSaving] = useState(false)
+  const [activeTab, setActiveTab] = useState("dados-basicos")
+  const [grupoForm, setGrupoForm] = useState<GrupoEconomicoForm>(GRUPO_ECONOMICO_FORM_INITIAL)
+  const [empresaForm, setEmpresaForm] = useState<EmpresaForm>(EMPRESA_FORM_INITIAL)
 
-  const isRoot = user?.role === "ROLE_ROOT"
+  const isRoot = user?.roles?.includes("ROLE_ROOT") ?? false
+  const isAdmin = user?.roles?.includes("ROLE_ADMIN") ?? false
+  const canViewModule = canAccess("admin.coordenar_empresas", "ver")
+  const canCreateEmpresa = isRoot
+  const canEditEmpresa = isRoot || isAdmin
+  const canManageStatus = isRoot
+  const canManageGrupoEconomico = isRoot
 
   const load = async () => {
     setLoading(true)
     try {
-      const [companiesData, empresasData] = await Promise.all([getCompanies(), getEmpresas()])
+      const [companiesData, empresasData, tenantOptionsData] = await Promise.all([
+        getCompanies(),
+        getEmpresas(),
+        getTenantOptions().catch(() => [] as string[]),
+      ])
       setCompanies(companiesData)
       setEmpresas(empresasData)
+      setTenantOptions(tenantOptionsData)
     } catch (error) {
       console.error("Erro ao carregar companies/empresas:", error)
-      customToast.error("Erro ao carregar companies e empresas.")
+      customToast.error("Erro ao carregar dados do modulo de empresas.")
     } finally {
       setLoading(false)
     }
@@ -48,392 +261,1004 @@ export default function CoordenarEmpresasPage() {
     void load()
   }, [])
 
-  const empresasByCompany = useMemo(() => {
-    const grouped = new Map<number, EmpresaItem[]>()
+  const availableCompanyIds = useMemo(() => {
+    if (isRoot) return null
+    return new Set(user?.companyIds ?? [])
+  }, [isRoot, user?.companyIds])
 
-    for (const empresa of empresas) {
-      const items = grouped.get(empresa.companyId) ?? []
-      items.push(empresa)
-      grouped.set(empresa.companyId, items)
+  const visibleCompanies = useMemo(() => {
+    if (!availableCompanyIds) return companies
+    return companies.filter((company) => availableCompanyIds.has(company.id))
+  }, [availableCompanyIds, companies])
+
+  const visibleEmpresas = useMemo(() => {
+    if (!availableCompanyIds) return empresas
+    return empresas.filter((empresa) => availableCompanyIds.has(empresa.companyId))
+  }, [availableCompanyIds, empresas])
+
+  const selectedCompany = useMemo(() => {
+    return selectedCompanyId ? visibleCompanies.find((company) => company.id === Number(selectedCompanyId)) ?? null : null
+  }, [selectedCompanyId, visibleCompanies])
+
+  const filteredEmpresas = useMemo(() => {
+    const term = filters.search.trim().toLowerCase()
+
+    return visibleEmpresas.filter((empresa) => {
+      const matchesCompany = !selectedCompanyId || empresa.companyId === Number(selectedCompanyId)
+      const matchesStatus = filters.status === "__all__" || normalizeStatus(empresa.status) === filters.status
+      if (!matchesCompany || !matchesStatus) return false
+
+      if (!term) return true
+
+      const haystack = [
+        empresa.razaoSocial,
+        empresa.apelido,
+        empresa.nomeFantasia,
+        empresa.abreviatura,
+        extractDocument(empresa),
+        extractAddressField(empresa, "cidade"),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+
+      return haystack.includes(term)
+    })
+  }, [filters.search, filters.status, selectedCompanyId, visibleEmpresas])
+
+  const companiesById = useMemo(() => {
+    return new Map(visibleCompanies.map((company) => [company.id, company]))
+  }, [visibleCompanies])
+
+  const empresaSummary = useMemo(() => {
+    const active = visibleEmpresas.filter((empresa) => normalizeStatus(empresa.status) === "active").length
+    const inactive = visibleEmpresas.length - active
+    const withDocument = visibleEmpresas.filter((empresa) => Boolean(extractDocument(empresa))).length
+    return { active, inactive, withDocument }
+  }, [visibleEmpresas])
+
+  const companiesWithTotals = useMemo(() => {
+    const totals = new Map<number, number>()
+    for (const empresa of visibleEmpresas) {
+      totals.set(empresa.companyId, (totals.get(empresa.companyId) ?? 0) + 1)
+    }
+    return visibleCompanies.map((company) => ({
+      ...company,
+      empresasCount: totals.get(company.id) ?? 0,
+    }))
+  }, [visibleCompanies, visibleEmpresas])
+
+  const selectedCompanySummary = useMemo(() => {
+    if (!selectedCompanyId) {
+      return { total: 0, active: 0, inactive: 0, withDocument: 0 }
     }
 
-    return grouped
-  }, [empresas])
+    const scoped = visibleEmpresas.filter((empresa) => empresa.companyId === Number(selectedCompanyId))
+    const active = scoped.filter((empresa) => normalizeStatus(empresa.status) === "active").length
+    const inactive = scoped.length - active
+    const withDocument = scoped.filter((empresa) => Boolean(extractDocument(empresa))).length
+    return { total: scoped.length, active, inactive, withDocument }
+  }, [selectedCompanyId, visibleEmpresas])
 
-  const handleCreateCompany = async () => {
-    if (!companyForm.nome.trim()) {
-      customToast.error("Informe o nome da company.")
+  const openCreateEmpresaDialog = () => {
+    const defaultCompanyId = selectedCompanyId || (!isRoot ? String(user?.companyIds?.[0] ?? "") : "")
+    setEditingEmpresaId(null)
+    setEmpresaForm({
+      ...EMPRESA_FORM_INITIAL,
+      companyId: defaultCompanyId,
+    })
+    setActiveTab("dados-basicos")
+    setEmpresaDialogOpen(true)
+  }
+
+  const openCreateGrupoDialog = () => {
+    setEditingGroupId(null)
+    setGrupoForm(GRUPO_ECONOMICO_FORM_INITIAL)
+    setGrupoDialogOpen(true)
+  }
+
+  const openEditGrupoDialog = (company: CompanyItem) => {
+    setEditingGroupId(company.id)
+    setGrupoForm({
+      nome: company.nome,
+      tenancyMode: company.tenantInstance.tenancyMode,
+      databaseKey: company.tenantInstance.databaseKey || "",
+      status: normalizeStatus(company.status),
+    })
+    setGrupoDialogOpen(true)
+  }
+
+  const handleSaveGrupoEconomico = async () => {
+    if (!grupoForm.nome.trim()) {
+      customToast.error("Preencha o nome do grupo economico.")
       return
     }
 
-    if (companyForm.tenancyMode === "dedicated" && !companyForm.databaseKey.trim()) {
-      customToast.error("Informe o database key para tenancy dedicated.")
+    if (!grupoForm.databaseKey) {
+      customToast.error("Selecione o database key.")
       return
     }
 
     setSaving(true)
     try {
-      if (editingCompanyId) {
-        await updateCompany(editingCompanyId, {
-          nome: companyForm.nome.trim(),
-          tenancyMode: companyForm.tenancyMode,
-          databaseKey: companyForm.databaseKey.trim() || undefined,
-          status: companyForm.status,
-        })
-      } else {
-        await createCompany({
-          nome: companyForm.nome.trim(),
-          tenancyMode: companyForm.tenancyMode,
-          databaseKey: companyForm.databaseKey.trim() || undefined,
-          status: companyForm.status,
-        })
+      const payload = {
+        nome: grupoForm.nome.trim(),
+        tenancyMode: grupoForm.tenancyMode,
+        databaseKey: grupoForm.databaseKey.trim() || undefined,
+        status: grupoForm.status,
       }
 
-      customToast.success(editingCompanyId ? "Company atualizada com sucesso." : "Company criada com sucesso.")
-      setCompanyDialogOpen(false)
-      setEditingCompanyId(null)
-      setCompanyForm({ nome: "", tenancyMode: "shared", databaseKey: "", status: "active" })
+      if (editingGroupId) {
+        await updateCompany(editingGroupId, payload)
+      } else {
+        await createCompany(payload)
+      }
+
+      customToast.success(editingGroupId ? "Grupo economico atualizado com sucesso." : "Grupo economico criado com sucesso.")
+      setGrupoDialogOpen(false)
+      setEditingGroupId(null)
+      setGrupoForm(GRUPO_ECONOMICO_FORM_INITIAL)
       await load()
     } catch (error: any) {
-      customToast.error(error?.response?.data?.error?.message || error?.message || `Erro ao ${editingCompanyId ? "atualizar" : "criar"} company.`)
+      customToast.error(
+        error?.response?.data?.error?.message ||
+        error?.response?.data?.message ||
+        error?.message ||
+        `Erro ao ${editingGroupId ? "atualizar" : "criar"} grupo economico.`
+      )
     } finally {
       setSaving(false)
     }
   }
 
-  const handleCreateEmpresa = async () => {
-    if (!empresaForm.companyId || !empresaForm.razaoSocial.trim() || !empresaForm.cnpj.trim()) {
-      customToast.error("Preencha company, razão social e CNPJ.")
+  const openEditEmpresaDialog = (empresa: EmpresaItem) => {
+    setEditingEmpresaId(empresa.id)
+    setEmpresaForm(mapEmpresaToForm(empresa))
+    setActiveTab("dados-basicos")
+    setEmpresaDialogOpen(true)
+  }
+
+  const handleSaveEmpresa = async () => {
+    if (!empresaForm.companyId || !empresaForm.razaoSocial.trim() || !empresaForm.apelido.trim()) {
+      customToast.error("Preencha grupo economico, razao social e apelido.")
+      setActiveTab("dados-basicos")
+      return
+    }
+
+    if (empresaForm.cpfCnpj && !validateDocument(empresaForm.cpfCnpj)) {
+      customToast.error("CPF/CNPJ invalido.")
+      setActiveTab("dados-basicos")
+      return
+    }
+
+    if (editingEmpresaId && !canEditEmpresa) {
+      customToast.error("Seu perfil nao pode editar empresas.")
+      return
+    }
+
+    if (!editingEmpresaId && !canCreateEmpresa) {
+      customToast.error("Somente ROLE_ROOT pode cadastrar empresas.")
+      return
+    }
+
+    if (!canManageStatus && empresaForm.status === "inactive") {
+      customToast.error("Somente ROLE_ROOT pode inativar empresas.")
       return
     }
 
     setSaving(true)
     try {
+      const payload = buildEmpresaPayload(empresaForm)
+
       if (editingEmpresaId) {
-        await updateEmpresa(editingEmpresaId, {
-          companyId: Number(empresaForm.companyId),
-          razaoSocial: empresaForm.razaoSocial.trim(),
-          nomeFantasia: empresaForm.nomeFantasia.trim() || undefined,
-          cnpj: empresaForm.cnpj.trim(),
-          status: empresaForm.status,
-        })
+        await updateEmpresa(editingEmpresaId, payload)
       } else {
-        await createEmpresa({
-          companyId: Number(empresaForm.companyId),
-          razaoSocial: empresaForm.razaoSocial.trim(),
-          nomeFantasia: empresaForm.nomeFantasia.trim() || undefined,
-          cnpj: empresaForm.cnpj.trim(),
-          status: empresaForm.status,
-        })
+        await createEmpresa(payload)
       }
 
       customToast.success(editingEmpresaId ? "Empresa atualizada com sucesso." : "Empresa criada com sucesso.")
       setEmpresaDialogOpen(false)
       setEditingEmpresaId(null)
-      setEmpresaForm({ companyId: "", razaoSocial: "", nomeFantasia: "", cnpj: "", status: "active" })
+      setEmpresaForm(EMPRESA_FORM_INITIAL)
       await load()
     } catch (error: any) {
-      customToast.error(error?.response?.data?.error?.message || error?.message || `Erro ao ${editingEmpresaId ? "atualizar" : "criar"} empresa.`)
+      customToast.error(
+        error?.response?.data?.error?.message ||
+        error?.response?.data?.message ||
+        error?.message ||
+        `Erro ao ${editingEmpresaId ? "atualizar" : "criar"} empresa.`
+      )
     } finally {
       setSaving(false)
     }
   }
 
-  const openCreateCompanyDialog = () => {
-    setEditingCompanyId(null)
-    setCompanyForm({ nome: "", tenancyMode: "shared", databaseKey: "", status: "active" })
-    setCompanyDialogOpen(true)
-  }
-
-  const openEditCompanyDialog = (company: CompanyItem) => {
-    setEditingCompanyId(company.id)
-    setCompanyForm({
-      nome: company.nome,
-      tenancyMode: company.tenantInstance.tenancyMode,
-      databaseKey: company.tenantInstance.databaseKey,
-      status: company.status as "active" | "inactive",
-    })
-    setCompanyDialogOpen(true)
-  }
-
-  const openCreateEmpresaDialog = () => {
-    setEditingEmpresaId(null)
-    setEmpresaForm({ companyId: "", razaoSocial: "", nomeFantasia: "", cnpj: "", status: "active" })
-    setEmpresaDialogOpen(true)
-  }
-
-  const openEditEmpresaDialog = (empresa: EmpresaItem) => {
-    setEditingEmpresaId(empresa.id)
-    setEmpresaForm({
-      companyId: String(empresa.companyId),
-      razaoSocial: empresa.razaoSocial,
-      nomeFantasia: empresa.nomeFantasia ?? "",
-      cnpj: empresa.cnpj,
-      status: empresa.status as "active" | "inactive",
-    })
-    setEmpresaDialogOpen(true)
-  }
-
-  const toggleExpanded = (companyId: number) => {
-    setExpandedCompanyIds((prev) =>
-      prev.includes(companyId) ? prev.filter((id) => id !== companyId) : [...prev, companyId]
-    )
-  }
-
   return (
     <>
       <MainHeader />
-      <div className="min-h-screen bg-slate-50/70 dark:bg-slate-950">
-        <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
-          <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <h1 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-white">
-                Companies e Empresas
-              </h1>
-              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                Tela compatível com a API atual: listagem e cadastros suportados pelo backend.
-              </p>
+      <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(59,130,246,0.12),_transparent_35%),linear-gradient(180deg,_rgba(248,250,252,0.98),_rgba(241,245,249,0.92))]">
+        <div className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6">
+          <section className="overflow-hidden rounded-[28px] border border-slate-200/80 bg-white/90 shadow-[0_24px_80px_-36px_rgba(15,23,42,0.35)]">
+            <div className="flex flex-col gap-6 px-6 py-6 lg:flex-row lg:items-end lg:justify-between">
+              <div className="max-w-3xl">
+                <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-xs font-medium uppercase tracking-[0.24em] text-blue-700">
+                  <Factory className="h-3.5 w-3.5" />
+                  Governanca Fiscal
+                </div>
+                <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
+                  {selectedCompany ? "Modulo Empresas" : "Coordenar Empresas"}
+                </h1>
+                <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+                  {selectedCompany
+                    ? "Cadastro da pessoa juridica que ancora financeiro, contas caixa, centros de custo, movimento contabil e integracao ASAAS dentro do tenant."
+                    : "Relatorio consolidado de grupos economicos. Selecione um grupo economico para abrir o modulo Empresas no contexto fiscal correto."}
+                </p>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                {selectedCompany && (
+                  <Button
+                    variant="outline"
+                    onClick={() => setSelectedCompanyId("")}
+                    className="border-slate-200"
+                  >
+                    <ArrowLeft className="mr-2 h-4 w-4" />
+                    Voltar para Grupos Economicos
+                  </Button>
+                )}
+                <Button variant="outline" onClick={() => void load()} disabled={loading}>
+                  <RefreshCw className={cn("mr-2 h-4 w-4", loading && "animate-spin")} />
+                  Atualizar
+                </Button>
+                {canManageGrupoEconomico && !selectedCompany && (
+                  <Button className="bg-slate-900 hover:bg-slate-800" onClick={openCreateGrupoDialog}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    + Grupo Economico
+                  </Button>
+                )}
+                {canCreateEmpresa && selectedCompany && (
+                  <Button className="bg-blue-600 hover:bg-blue-700" onClick={openCreateEmpresaDialog}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Nova Empresa
+                  </Button>
+                )}
+              </div>
             </div>
 
-            <div className="flex flex-wrap gap-2">
-              <Button variant="outline" onClick={() => void load()} disabled={loading}>
-                <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-                Atualizar
-              </Button>
-              {isRoot && (
-                <Button onClick={() => setCompanyDialogOpen(true)}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Nova Company
-                </Button>
-              )}
-              {isRoot && (
-                <Button variant="secondary" onClick={() => setEmpresaDialogOpen(true)}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Nova Empresa
-                </Button>
-              )}
+            <Separator className="bg-blue-100" />
+
+            <div className="grid gap-4 px-6 py-5 md:grid-cols-2 xl:grid-cols-4">
+              <MetricCard
+                icon={selectedCompany ? Building2 : Factory}
+                label={selectedCompany ? "Empresas ativas" : "Grupos Economicos"}
+                value={selectedCompany ? String(selectedCompanySummary.active) : String(visibleCompanies.length)}
+                hint={selectedCompany ? "Disponiveis para vinculos fiscais e financeiros" : "Estruturas economicas visiveis para o usuario atual"}
+              />
+              <MetricCard
+                icon={Landmark}
+                label={selectedCompany ? "Empresas inativas" : "Grupos ativos"}
+                value={selectedCompany ? String(selectedCompanySummary.inactive) : String(visibleCompanies.filter((company) => company.status === "active").length)}
+                hint={selectedCompany ? "Nao aparecem em consultas usuais do dominio" : "Grupos economicos operacionais no tenant"}
+              />
+              <MetricCard
+                icon={FileText}
+                label={selectedCompany ? "Documentacao" : "Empresas vinculadas"}
+                value={selectedCompany ? `${selectedCompanySummary.withDocument}/${selectedCompanySummary.total || 0}` : String(visibleEmpresas.length)}
+                hint={selectedCompany ? "Cadastros com CPF/CNPJ informado" : "Empresas fiscais distribuidas nos grupos economicos"}
+              />
+              <MetricCard
+                icon={selectedCompany ? Factory : Building2}
+                label={selectedCompany ? "Grupo selecionado" : "Empresas ativas"}
+                value={selectedCompany ? selectedCompany.nome : String(empresaSummary.active)}
+                hint={selectedCompany ? "Tenant obrigatorio para o contexto de empresa" : "Cadastros fiscais ativos no ecossistema"}
+              />
             </div>
-          </div>
+          </section>
 
-          <Card className="border-slate-200 dark:border-slate-800">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Layers3 className="h-4 w-4 text-blue-600" />
-                Estrutura de companies e empresas
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {loading ? (
-                <div className="text-sm text-slate-500">Carregando companies e empresas...</div>
-              ) : companies.length === 0 ? (
-                <div className="text-sm text-slate-500">Nenhuma company disponível.</div>
-              ) : (
-                companies.map((company) => {
-                  const companyEmpresas = empresasByCompany.get(company.id) ?? []
-                  const isExpanded = expandedCompanyIds.includes(company.id)
-
-                  return (
-                    <div key={company.id} className="rounded-2xl border border-slate-200 bg-white/70 dark:border-slate-800 dark:bg-slate-950/40">
-                      <div className="flex items-center gap-3 p-3">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="h-9 w-9 shrink-0 rounded-xl"
-                          onClick={() => toggleExpanded(company.id)}
-                        >
-                          {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                        </Button>
-
-                        <button
-                          type="button"
-                          onClick={() => isRoot && openEditCompanyDialog(company)}
-                          className={`flex flex-1 items-center justify-between gap-3 rounded-xl border border-transparent px-3 py-2 text-left transition ${
-                            isRoot
-                              ? "hover:border-slate-200 hover:bg-slate-50 dark:hover:border-slate-700 dark:hover:bg-slate-900"
-                              : "cursor-default"
-                          }`}
-                        >
+          {!canViewModule ? (
+            <Card className="rounded-[24px] border-slate-200/80 bg-white/90">
+              <CardContent className="px-6 py-8 text-sm text-slate-600">
+                Seu usuario nao possui permissao para visualizar este modulo.
+              </CardContent>
+            </Card>
+          ) : !selectedCompany ? (
+            <Card className="rounded-[28px] border-slate-200/80 bg-white/90">
+              <CardHeader className="gap-4">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                  <div>
+                    <CardTitle className="text-xl text-slate-900">Relatorio de grupos economicos</CardTitle>
+                    <p className="mt-1 text-sm text-slate-500">
+                      Escolha um grupo economico para entrar no modulo Empresas com o contexto fiscal filtrado.
+                    </p>
+                  </div>
+                  <div className="relative min-w-[260px]">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                    <Input
+                      className="h-11 rounded-2xl border-slate-200 pl-9"
+                      placeholder="Buscar grupo economico..."
+                      value={filters.search}
+                      onChange={(event) => setFilters((prev) => ({ ...prev, search: event.target.value }))}
+                    />
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="grid gap-4 lg:grid-cols-2">
+                {loading ? (
+                  <div className="rounded-3xl border border-dashed border-slate-200 px-5 py-10 text-sm text-slate-500">
+                    Carregando grupos economicos...
+                  </div>
+                ) : companiesWithTotals.filter((company) => company.nome.toLowerCase().includes(filters.search.trim().toLowerCase())).length === 0 ? (
+                  <div className="rounded-3xl border border-dashed border-slate-200 px-5 py-10 text-sm text-slate-500">
+                    Nenhum grupo economico encontrado.
+                  </div>
+                ) : (
+                  companiesWithTotals
+                    .filter((company) => company.nome.toLowerCase().includes(filters.search.trim().toLowerCase()))
+                    .map((company) => (
+                      <div
+                        key={company.id}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => {
+                          setSelectedCompanyId(String(company.id))
+                          setFilters((prev) => ({ ...prev, search: "" }))
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault()
+                            setSelectedCompanyId(String(company.id))
+                            setFilters((prev) => ({ ...prev, search: "" }))
+                          }
+                        }}
+                        className="cursor-pointer rounded-[26px] border border-slate-200/90 bg-[linear-gradient(180deg,_rgba(255,255,255,0.98),_rgba(248,250,252,0.92))] p-5 text-left transition hover:border-blue-200 hover:shadow-[0_18px_48px_-30px_rgba(37,99,235,0.55)]"
+                      >
+                        <div className="flex items-start justify-between gap-4">
                           <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                              <Layers3 className="h-4 w-4 text-blue-600" />
-                              <span className="font-medium text-slate-900 dark:text-white">{company.nome}</span>
+                            <div className="flex items-center gap-3">
+                              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-900 text-white">
+                                <Factory className="h-5 w-5" />
+                              </div>
+                              <div>
+                                <h2 className="truncate text-lg font-semibold text-slate-900">{company.nome}</h2>
+                                <p className="mt-1 text-sm text-slate-500">
+                                  {company.tenantInstance.tenancyMode} • DB {company.tenantInstance.databaseKey || "padrao"}
+                                </p>
+                              </div>
                             </div>
-                            <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                              ID {company.id} • {company.tenantInstance.tenancyMode} • DB {company.tenantInstance.databaseKey}
+
+                            <div className="mt-4 grid gap-3 md:grid-cols-2">
+                              <InfoPill label="Empresas" value={String(company.empresasCount)} />
+                              <InfoPill label="Status" value={company.status} />
                             </div>
                           </div>
                           <div className="flex items-center gap-2">
                             <Badge variant={company.status === "active" ? "default" : "secondary"}>
                               {company.status}
                             </Badge>
-                            {isRoot && <Pencil className="h-4 w-4 text-slate-400" />}
+                            {canManageGrupoEconomico && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="rounded-xl border-slate-200 bg-white/90"
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  openEditGrupoDialog(company)
+                                }}
+                              >
+                                <Pencil className="mr-2 h-4 w-4" />
+                                Editar
+                              </Button>
+                            )}
                           </div>
-                        </button>
-                      </div>
-
-                      {isExpanded && (
-                        <div className="border-t border-slate-200 px-4 py-3 dark:border-slate-800">
-                          {companyEmpresas.length === 0 ? (
-                            <div className="rounded-xl border border-dashed border-slate-200 px-4 py-3 text-sm text-slate-500 dark:border-slate-700">
-                              Nenhuma empresa vinculada a esta company.
-                            </div>
-                          ) : (
-                            <div className="space-y-2">
-                              {companyEmpresas.map((empresa) => (
-                                <button
-                                  key={empresa.id}
-                                  type="button"
-                                  onClick={() => isRoot && openEditEmpresaDialog(empresa)}
-                                  className={`flex w-full items-start justify-between gap-3 rounded-xl border border-slate-200 px-4 py-3 text-left transition dark:border-slate-800 ${
-                                    isRoot
-                                      ? "hover:border-emerald-200 hover:bg-emerald-50/40 dark:hover:border-emerald-900 dark:hover:bg-slate-900"
-                                      : "cursor-default"
-                                  }`}
-                                >
-                                  <div className="min-w-0">
-                                    <div className="flex items-center gap-2">
-                                      <Building2 className="h-4 w-4 text-emerald-600" />
-                                      <span className="font-medium text-slate-900 dark:text-white">{empresa.razaoSocial}</span>
-                                    </div>
-                                    <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                      {empresa.nomeFantasia || "Sem nome fantasia"} • CNPJ {empresa.cnpj}
-                                    </div>
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    <Badge variant={empresa.status === "active" ? "default" : "secondary"}>
-                                      {empresa.status}
-                                    </Badge>
-                                    {isRoot && <Pencil className="h-4 w-4 text-slate-400" />}
-                                  </div>
-                                </button>
-                              ))}
-                            </div>
-                          )}
                         </div>
-                      )}
+                      </div>
+                    ))
+                )}
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid gap-6 xl:grid-cols-[1.6fr_0.9fr]">
+              <Card className="rounded-[28px] border-slate-200/80 bg-white/90">
+                <CardHeader className="gap-4">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                    <div>
+                      <CardTitle className="text-xl text-slate-900">Cadastro e governanca</CardTitle>
+                      <p className="mt-1 text-sm text-slate-500">
+                        {selectedCompany.nome} • empresas vinculadas ao contexto fiscal deste grupo economico.
+                      </p>
                     </div>
-                  )
-                })
-              )}
-            </CardContent>
-          </Card>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="relative min-w-[220px]">
+                        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                        <Input
+                          className="h-11 rounded-2xl border-slate-200 pl-9"
+                          placeholder="Buscar razao social, apelido, CNPJ..."
+                          value={filters.search}
+                          onChange={(event) => setFilters((prev) => ({ ...prev, search: event.target.value }))}
+                        />
+                      </div>
+                      <Select
+                        value={filters.status}
+                        onValueChange={(value) => setFilters((prev) => ({ ...prev, status: value }))}
+                      >
+                        <SelectTrigger className="h-11 rounded-2xl border-slate-200">
+                          <SelectValue placeholder="Todos os status" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__all__">Todos os status</SelectItem>
+                          <SelectItem value="active">Ativas</SelectItem>
+                          <SelectItem value="inactive">Inativas</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {loading ? (
+                    <div className="rounded-3xl border border-dashed border-slate-200 px-5 py-10 text-sm text-slate-500">
+                      Carregando empresas...
+                    </div>
+                  ) : filteredEmpresas.length === 0 ? (
+                    <div className="rounded-3xl border border-dashed border-slate-200 px-5 py-10 text-sm text-slate-500">
+                      Nenhuma empresa encontrada com os filtros atuais.
+                    </div>
+                  ) : (
+                    filteredEmpresas.map((empresa) => {
+                      const company = companiesById.get(empresa.companyId)
+                      const status = normalizeStatus(empresa.status)
+                      const document = extractDocument(empresa)
+                      const addressSummary = [extractAddressField(empresa, "cidade"), extractAddressField(empresa, "estado")]
+                        .filter(Boolean)
+                        .join(" • ")
+
+                      return (
+                        <article
+                          key={empresa.id}
+                          className="group rounded-[26px] border border-slate-200/90 bg-[linear-gradient(180deg,_rgba(255,255,255,0.98),_rgba(248,250,252,0.92))] p-5 transition hover:border-blue-200 hover:shadow-[0_18px_48px_-30px_rgba(37,99,235,0.55)]"
+                        >
+                          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                            <div className="space-y-4">
+                              <div className="flex flex-wrap items-center gap-3">
+                                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-500/20">
+                                  <Building2 className="h-5 w-5" />
+                                </div>
+                                <div>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <h2 className="text-lg font-semibold text-slate-900">{empresa.razaoSocial}</h2>
+                                    <Badge variant={status === "active" ? "default" : "secondary"}>
+                                      {status === "active" ? "Ativa" : "Inativa"}
+                                    </Badge>
+                                  </div>
+                                  <p className="text-sm text-slate-500">
+                                    {empresa.apelido || empresa.nomeFantasia || "Sem apelido"} {empresa.abreviatura ? `• ${String(empresa.abreviatura).toUpperCase()}` : ""}
+                                  </p>
+                                </div>
+                              </div>
+
+                              <div className="grid gap-3 md:grid-cols-3">
+                                <InfoPill label="Grupo Economico" value={company?.nome || `#${empresa.companyId}`} />
+                                <InfoPill label="CPF/CNPJ" value={formatDocument(document)} />
+                                <InfoPill label="Inscricoes" value={[
+                                  empresa.inscricaoEstadual ? `IE ${empresa.inscricaoEstadual}` : null,
+                                  empresa.inscricaoMunicipal ? `IM ${empresa.inscricaoMunicipal}` : null,
+                                ].filter(Boolean).join(" • ") || "Nao informadas"} />
+                              </div>
+
+                              <div className="grid gap-3 md:grid-cols-2">
+                                <InfoPill label="Endereco" value={addressSummary || "Endereco nao informado"} />
+                                <InfoPill label="Contexto" value="Financeiro, cobranca ASAAS e governanca fiscal" />
+                              </div>
+                            </div>
+
+                            {canEditEmpresa && (
+                              <Button
+                                variant="outline"
+                                className="rounded-2xl border-slate-200 bg-white/80 px-4"
+                                onClick={() => openEditEmpresaDialog(empresa)}
+                              >
+                                <Pencil className="mr-2 h-4 w-4" />
+                                Editar
+                              </Button>
+                            )}
+                          </div>
+                        </article>
+                      )
+                    })
+                  )}
+                </CardContent>
+              </Card>
+
+              <div className="space-y-6">
+                <Card className="rounded-[28px] border-slate-200/80 bg-white/90">
+                  <CardHeader>
+                    <CardTitle className="text-xl text-slate-900">Escopo do grupo economico</CardTitle>
+                    <p className="text-sm text-slate-500">
+                      {selectedCompany.nome} concentra o tenant selecionado; `empresa_id` define o contexto fiscal interno.
+                    </p>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="rounded-[22px] border border-slate-200/90 bg-slate-50/80 px-4 py-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium text-slate-900">{selectedCompany.nome}</p>
+                          <p className="mt-1 text-xs text-slate-500">
+                            {formatCompanyScope(selectedCompany, selectedCompanySummary.total)}
+                          </p>
+                        </div>
+                        <Badge variant={selectedCompany.status === "active" ? "default" : "secondary"}>
+                          {selectedCompany.status}
+                        </Badge>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="rounded-[28px] border-slate-200/80 bg-white/90">
+                  <CardHeader>
+                    <CardTitle className="text-xl text-slate-900">Regras visiveis na UI</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3 text-sm text-slate-600">
+                    <RuleItem text="Nome e apelido sao obrigatorios no frontend." />
+                    <RuleItem text="CPF/CNPJ e opcional, mas se informado precisa ser valido." />
+                    <RuleItem text="Somente ROLE_ROOT pode cadastrar ou inativar empresa." />
+                    <RuleItem text="ROLE_ROOT e ROLE_ADMIN podem alterar o cadastro existente." />
+                    <RuleItem text="Exclusao deve ser bloqueada quando houver dados vinculados a empresa." />
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
-      <Dialog open={companyDialogOpen} onOpenChange={(open) => {
-        setCompanyDialogOpen(open)
-        if (!open) {
-          setEditingCompanyId(null)
-        }
-      }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{editingCompanyId ? "Editar Company" : "Nova Company"}</DialogTitle>
+      <Dialog
+        open={grupoDialogOpen}
+        onOpenChange={(open) => {
+          setGrupoDialogOpen(open)
+          if (!open) {
+            setEditingGroupId(null)
+            setGrupoForm(GRUPO_ECONOMICO_FORM_INITIAL)
+          }
+        }}
+      >
+        <DialogContent aria-describedby={undefined} className="max-w-2xl rounded-[24px] border border-slate-200 bg-slate-50 p-0">
+          <DialogHeader className="border-b border-slate-200 px-6 py-5 pr-14">
+            <div className="flex items-start gap-4">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-900 text-white">
+                <Factory className="h-5 w-5" />
+              </div>
+              <div>
+                <DialogTitle className="text-2xl font-semibold text-slate-900">
+                  {editingGroupId ? "Editar Grupo Economico" : "Novo Grupo Economico"}
+                </DialogTitle>
+                <DialogDescription className="mt-1 text-sm text-slate-500">
+                  Estrutura economica superior do ERP. No backend o contrato permanece em `company`.
+                </DialogDescription>
+              </div>
+            </div>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="company-nome">Nome</Label>
-              <Input id="company-nome" value={companyForm.nome} onChange={(e) => setCompanyForm((prev) => ({ ...prev, nome: e.target.value }))} />
-            </div>
-            <div className="space-y-2">
-              <Label>Modo de tenancy</Label>
-              <Select value={companyForm.tenancyMode} onValueChange={(value: "shared" | "dedicated") => setCompanyForm((prev) => ({ ...prev, tenancyMode: value }))}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="shared">shared</SelectItem>
-                  <SelectItem value="dedicated">dedicated</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Status</Label>
-              <Select value={companyForm.status} onValueChange={(value: "active" | "inactive") => setCompanyForm((prev) => ({ ...prev, status: value }))}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="active">active</SelectItem>
-                  <SelectItem value="inactive">inactive</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="company-db-key">Database key</Label>
-              <Input
-                id="company-db-key"
-                placeholder={companyForm.tenancyMode === "shared" ? "Opcional em shared" : "Obrigatório em dedicated"}
-                value={companyForm.databaseKey}
-                onChange={(e) => setCompanyForm((prev) => ({ ...prev, databaseKey: e.target.value }))}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCompanyDialogOpen(false)}>Cancelar</Button>
-            <Button onClick={() => void handleCreateCompany()} disabled={saving}>Salvar</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
-      <Dialog open={empresaDialogOpen} onOpenChange={(open) => {
-        setEmpresaDialogOpen(open)
-        if (!open) {
-          setEditingEmpresaId(null)
-        }
-      }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{editingEmpresaId ? "Editar Empresa" : "Nova Empresa"}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>Company</Label>
-              <Select value={empresaForm.companyId} onValueChange={(value) => setEmpresaForm((prev) => ({ ...prev, companyId: value }))}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione a company" />
+          <div className="space-y-4 px-6 py-5">
+            <Field>
+              <Label htmlFor="grupo-nome">Nome do Grupo Economico</Label>
+              <Input
+                id="grupo-nome"
+                className="h-11 rounded-xl border-slate-200 bg-white"
+                value={grupoForm.nome}
+                onChange={(event) => setGrupoForm((prev) => ({ ...prev, nome: event.target.value }))}
+              />
+            </Field>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field>
+                <Label>Modo de tenancy</Label>
+                <Select
+                  value={grupoForm.tenancyMode}
+                  onValueChange={(value: "shared" | "dedicated") => setGrupoForm((prev) => ({ ...prev, tenancyMode: value, databaseKey: "" }))}
+                >
+                  <SelectTrigger className="h-11 rounded-xl border-slate-200 bg-white">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="shared">shared</SelectItem>
+                    <SelectItem value="dedicated">dedicated</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+
+              <Field>
+                <Label>Status</Label>
+                <Select
+                  value={grupoForm.status}
+                  onValueChange={(value: GrupoEconomicoStatus) => setGrupoForm((prev) => ({ ...prev, status: value }))}
+                >
+                  <SelectTrigger className="h-11 rounded-xl border-slate-200 bg-white">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="active">Ativo</SelectItem>
+                    <SelectItem value="inactive">Inativo</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+            </div>
+
+            <Field>
+              <Label>Database key *</Label>
+              <Select
+                value={grupoForm.databaseKey || "__none__"}
+                onValueChange={(value) => {
+                  if (value === "__none__") return
+                  setGrupoForm((prev) => ({ ...prev, databaseKey: value }))
+                }}
+              >
+                <SelectTrigger className="h-11 rounded-xl border-slate-200 bg-white">
+                  <SelectValue placeholder="Selecione o database key" />
                 </SelectTrigger>
                 <SelectContent>
-                  {companies.map((company) => (
-                    <SelectItem key={company.id} value={String(company.id)}>
-                      {company.nome}
-                    </SelectItem>
+                  <SelectItem value="__none__" disabled>Selecione o database key</SelectItem>
+                  {tenantOptions.filter((t) => t.type === grupoForm.tenancyMode).map((tenant) => (
+                    <SelectItem key={tenant.key} value={tenant.key}>{tenant.key}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="empresa-razao">Razão social</Label>
-              <Input id="empresa-razao" value={empresaForm.razaoSocial} onChange={(e) => setEmpresaForm((prev) => ({ ...prev, razaoSocial: e.target.value }))} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="empresa-fantasia">Nome fantasia</Label>
-              <Input id="empresa-fantasia" value={empresaForm.nomeFantasia} onChange={(e) => setEmpresaForm((prev) => ({ ...prev, nomeFantasia: e.target.value }))} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="empresa-cnpj">CNPJ</Label>
-              <Input id="empresa-cnpj" value={empresaForm.cnpj} onChange={(e) => setEmpresaForm((prev) => ({ ...prev, cnpj: e.target.value }))} />
-            </div>
-            <div className="space-y-2">
-              <Label>Status</Label>
-              <Select value={empresaForm.status} onValueChange={(value: "active" | "inactive") => setEmpresaForm((prev) => ({ ...prev, status: value }))}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="active">active</SelectItem>
-                  <SelectItem value="inactive">inactive</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            </Field>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEmpresaDialogOpen(false)}>Cancelar</Button>
-            <Button onClick={() => void handleCreateEmpresa()} disabled={saving}>Salvar</Button>
-          </DialogFooter>
+
+          <div className="border-t border-slate-200 bg-white px-6 py-4">
+            <DialogFooter>
+              <Button variant="outline" className="rounded-xl" onClick={() => setGrupoDialogOpen(false)}>
+                Cancelar
+              </Button>
+              <Button className="rounded-xl bg-slate-900 hover:bg-slate-800" onClick={() => void handleSaveGrupoEconomico()} disabled={saving}>
+                {editingGroupId ? "Atualizar Grupo Economico" : "Criar Grupo Economico"}
+              </Button>
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={empresaDialogOpen}
+        onOpenChange={(open) => {
+          setEmpresaDialogOpen(open)
+          if (!open) {
+            setEditingEmpresaId(null)
+            setEmpresaForm(EMPRESA_FORM_INITIAL)
+            setActiveTab("dados-basicos")
+          }
+        }}
+      >
+        <DialogContent aria-describedby={undefined} className="max-h-[92vh] max-w-5xl overflow-hidden rounded-[24px] border border-slate-200 bg-slate-50 p-0">
+          <DialogHeader className="border-b border-blue-100 px-6 py-5 pr-14">
+            <div className="flex items-start gap-4">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-500/25">
+                <Building2 className="h-5 w-5" />
+              </div>
+              <div>
+                <DialogTitle className="text-3xl font-semibold text-blue-900">
+                  {editingEmpresaId ? "Editar Empresa" : "Nova Empresa"}
+                </DialogTitle>
+                <DialogDescription className="mt-1 text-sm text-blue-700/80">
+                  {empresaForm.apelido || "Cadastro fiscal da empresa"} {empresaForm.abreviatura ? `• ${empresaForm.abreviatura.toUpperCase()}` : ""}
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="flex min-h-0 flex-1 flex-col">
+            <div className="px-6 pb-0 pt-5">
+              <TabsList className="grid h-auto w-full grid-cols-2 rounded-xl bg-blue-100/80 p-1">
+                <TabsTrigger
+                  value="dados-basicos"
+                  className="h-10 rounded-lg data-[state=active]:bg-blue-600 data-[state=active]:text-white"
+                >
+                  <Building2 className="mr-2 h-4 w-4" />
+                  Dados Basicos
+                </TabsTrigger>
+                <TabsTrigger
+                  value="endereco"
+                  className="h-10 rounded-lg data-[state=active]:bg-blue-600 data-[state=active]:text-white"
+                >
+                  <MapPin className="mr-2 h-4 w-4" />
+                  Endereco
+                </TabsTrigger>
+              </TabsList>
+            </div>
+
+            <ScrollArea className="h-[62vh] px-6 pb-6">
+              <TabsContent value="dados-basicos" className="mt-5 space-y-4">
+                <FormSection icon={Building2} title="Identificacao">
+                  <div className="grid gap-4">
+                    <Field>
+                      <Label htmlFor="empresa-company">Grupo Economico</Label>
+                      <Select
+                        value={empresaForm.companyId}
+                        onValueChange={(value) => setEmpresaForm((prev) => ({ ...prev, companyId: value }))}
+                        disabled={!isRoot}
+                      >
+                        <SelectTrigger id="empresa-company" className="h-11 rounded-xl border-slate-200 bg-white">
+                          <SelectValue placeholder="Selecione o grupo economico" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {visibleCompanies.map((company) => (
+                            <SelectItem key={company.id} value={String(company.id)}>
+                              {company.nome}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </Field>
+
+                    <Field>
+                      <Label htmlFor="empresa-razao">Razao Social *</Label>
+                      <Input
+                        id="empresa-razao"
+                        className="h-11 rounded-xl border-slate-200 bg-white"
+                        value={empresaForm.razaoSocial}
+                        onChange={(event) => setEmpresaForm((prev) => ({ ...prev, razaoSocial: event.target.value }))}
+                      />
+                    </Field>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <Field>
+                        <Label htmlFor="empresa-apelido">Apelido *</Label>
+                        <Input
+                          id="empresa-apelido"
+                          className="h-11 rounded-xl border-slate-200 bg-white"
+                          value={empresaForm.apelido}
+                          onChange={(event) => setEmpresaForm((prev) => ({ ...prev, apelido: event.target.value }))}
+                        />
+                      </Field>
+
+                      <Field>
+                        <Label htmlFor="empresa-abreviatura">Abreviatura</Label>
+                        <Input
+                          id="empresa-abreviatura"
+                          className="h-11 rounded-xl border-slate-200 bg-white uppercase"
+                          value={empresaForm.abreviatura}
+                          onChange={(event) => setEmpresaForm((prev) => ({ ...prev, abreviatura: event.target.value.toUpperCase() }))}
+                        />
+                      </Field>
+                    </div>
+                  </div>
+                </FormSection>
+
+                <FormSection icon={FileText} title="Documentacao">
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <Field>
+                      <Label htmlFor="empresa-cpfcnpj">CPF/CNPJ</Label>
+                      <Input
+                        id="empresa-cpfcnpj"
+                        className="h-11 rounded-xl border-slate-200 bg-white"
+                        value={empresaForm.cpfCnpj}
+                        onChange={(event) => setEmpresaForm((prev) => ({ ...prev, cpfCnpj: maskCPFOrCNPJ(unmaskCPFOrCNPJ(event.target.value)) }))}
+                        placeholder="00.000.000/0000-00"
+                      />
+                    </Field>
+
+                    <Field>
+                      <Label htmlFor="empresa-ie">Inscricao Estadual</Label>
+                      <Input
+                        id="empresa-ie"
+                        className="h-11 rounded-xl border-slate-200 bg-white"
+                        value={empresaForm.inscricaoEstadual}
+                        onChange={(event) => setEmpresaForm((prev) => ({ ...prev, inscricaoEstadual: event.target.value }))}
+                      />
+                    </Field>
+
+                    <Field>
+                      <Label htmlFor="empresa-im">Inscricao Municipal</Label>
+                      <Input
+                        id="empresa-im"
+                        className="h-11 rounded-xl border-slate-200 bg-white"
+                        value={empresaForm.inscricaoMunicipal}
+                        onChange={(event) => setEmpresaForm((prev) => ({ ...prev, inscricaoMunicipal: event.target.value }))}
+                      />
+                    </Field>
+                  </div>
+                </FormSection>
+
+                <FormSection icon={Landmark} title="Governanca">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <Field>
+                      <Label>Status</Label>
+                      <Select
+                        value={empresaForm.status}
+                        onValueChange={(value: EmpresaStatus) => setEmpresaForm((prev) => ({ ...prev, status: value }))}
+                        disabled={!canManageStatus}
+                      >
+                        <SelectTrigger className="h-11 rounded-xl border-slate-200 bg-white">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="active">Ativa</SelectItem>
+                          <SelectItem value="inactive">Inativa</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </Field>
+
+                    <div className="rounded-2xl border border-blue-100 bg-blue-50/80 px-4 py-3 text-sm text-blue-900">
+                      A empresa funciona como chave de contexto para contas, titulos, baixas,
+                      transferencias financeiras, conciliacoes e workflows.
+                    </div>
+                  </div>
+                </FormSection>
+              </TabsContent>
+
+              <TabsContent value="endereco" className="mt-5 space-y-4">
+                <FormSection icon={MapPin} title="Localizacao">
+                  <div className="grid gap-4 md:grid-cols-[1.1fr_1fr_1.2fr]">
+                    <Field>
+                      <Label htmlFor="empresa-cep">CEP</Label>
+                      <Input
+                        id="empresa-cep"
+                        className="h-11 rounded-xl border-slate-200 bg-white"
+                        value={empresaForm.cep}
+                        onChange={(event) => setEmpresaForm((prev) => ({ ...prev, cep: maskCEP(event.target.value) }))}
+                        placeholder="00000-000"
+                      />
+                    </Field>
+
+                    <Field>
+                      <Label>Estado</Label>
+                      <Select
+                        value={empresaForm.estado || "__none__"}
+                        onValueChange={(value) => setEmpresaForm((prev) => ({ ...prev, estado: value === "__none__" ? "" : value }))}
+                      >
+                        <SelectTrigger className="h-11 rounded-xl border-slate-200 bg-white">
+                          <SelectValue placeholder="Selecione" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">Selecione</SelectItem>
+                          {BRAZILIAN_STATES.map((state) => (
+                            <SelectItem key={state} value={state}>
+                              {state}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </Field>
+
+                    <Field>
+                      <Label htmlFor="empresa-cidade">Cidade</Label>
+                      <Input
+                        id="empresa-cidade"
+                        className="h-11 rounded-xl border-slate-200 bg-white"
+                        value={empresaForm.cidade}
+                        onChange={(event) => setEmpresaForm((prev) => ({ ...prev, cidade: event.target.value }))}
+                      />
+                    </Field>
+                  </div>
+                </FormSection>
+
+                <FormSection icon={MapPin} title="Detalhes do Endereco">
+                  <div className="grid gap-4 md:grid-cols-[1.3fr_0.6fr_0.8fr]">
+                    <Field>
+                      <Label htmlFor="empresa-logradouro">Logradouro</Label>
+                      <Input
+                        id="empresa-logradouro"
+                        className="h-11 rounded-xl border-slate-200 bg-white"
+                        value={empresaForm.logradouro}
+                        onChange={(event) => setEmpresaForm((prev) => ({ ...prev, logradouro: event.target.value }))}
+                      />
+                    </Field>
+
+                    <Field>
+                      <Label htmlFor="empresa-numero">Numero</Label>
+                      <Input
+                        id="empresa-numero"
+                        className="h-11 rounded-xl border-slate-200 bg-white"
+                        value={empresaForm.numero}
+                        onChange={(event) => setEmpresaForm((prev) => ({ ...prev, numero: event.target.value }))}
+                      />
+                    </Field>
+
+                    <Field>
+                      <Label htmlFor="empresa-complemento">Complemento</Label>
+                      <Input
+                        id="empresa-complemento"
+                        className="h-11 rounded-xl border-slate-200 bg-white"
+                        value={empresaForm.complemento}
+                        onChange={(event) => setEmpresaForm((prev) => ({ ...prev, complemento: event.target.value }))}
+                      />
+                    </Field>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <Field>
+                      <Label htmlFor="empresa-bairro">Bairro</Label>
+                      <Input
+                        id="empresa-bairro"
+                        className="h-11 rounded-xl border-slate-200 bg-white"
+                        value={empresaForm.bairro}
+                        onChange={(event) => setEmpresaForm((prev) => ({ ...prev, bairro: event.target.value }))}
+                      />
+                    </Field>
+                  </div>
+                </FormSection>
+              </TabsContent>
+            </ScrollArea>
+          </Tabs>
+
+          <div className="border-t border-blue-100 bg-white px-6 py-4">
+            <DialogFooter>
+              <Button variant="outline" className="rounded-xl" onClick={() => setEmpresaDialogOpen(false)}>
+                Cancelar
+              </Button>
+              <Button className="rounded-xl bg-blue-600 hover:bg-blue-700" onClick={() => void handleSaveEmpresa()} disabled={saving}>
+                {editingEmpresaId ? "Atualizar Empresa" : "Cadastrar Empresa"}
+              </Button>
+            </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
     </>
   )
+}
+
+function MetricCard({
+  icon: Icon,
+  label,
+  value,
+  hint,
+}: {
+  icon: typeof Building2
+  label: string
+  value: string
+  hint: string
+}) {
+  return (
+    <div className="rounded-[24px] border border-slate-200/90 bg-[linear-gradient(180deg,_rgba(255,255,255,0.98),_rgba(248,250,252,0.9))] px-5 py-4">
+      <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-900 text-white">
+        <Icon className="h-5 w-5" />
+      </div>
+      <div className="text-sm text-slate-500">{label}</div>
+      <div className="mt-1 text-3xl font-semibold tracking-tight text-slate-900">{value}</div>
+      <div className="mt-2 text-xs leading-5 text-slate-500">{hint}</div>
+    </div>
+  )
+}
+
+function InfoPill({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3">
+      <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">{label}</div>
+      <div className="mt-1 text-sm font-medium text-slate-700">{value}</div>
+    </div>
+  )
+}
+
+function RuleItem({ text }: { text: string }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3">
+      {text}
+    </div>
+  )
+}
+
+function FormSection({
+  icon: Icon,
+  title,
+  children,
+}: {
+  icon: typeof Building2
+  title: string
+  children: ReactNode
+}) {
+  return (
+    <section className="rounded-[20px] border border-blue-100 bg-white px-5 py-5 shadow-[0_12px_40px_-32px_rgba(37,99,235,0.6)]">
+      <div className="mb-5 flex items-center gap-2 text-blue-800">
+        <Icon className="h-4 w-4" />
+        <h3 className="text-lg font-semibold tracking-tight text-blue-900">
+          {title}
+        </h3>
+      </div>
+      <div className="space-y-4">{children}</div>
+    </section>
+  )
+}
+
+function Field({ children }: { children: ReactNode }) {
+  return <div className="space-y-2">{children}</div>
 }

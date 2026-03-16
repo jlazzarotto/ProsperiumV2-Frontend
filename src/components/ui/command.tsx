@@ -28,7 +28,7 @@ type CommandDialogProps = DialogProps
 const CommandDialog = ({ children, ...props }: CommandDialogProps) => {
   return (
     <Dialog {...props}>
-      <DialogContent className="overflow-hidden p-0 shadow-lg">
+      <DialogContent aria-describedby={undefined} className="overflow-hidden p-0 shadow-lg">
         <DialogHeader className="sr-only">
           <DialogTitle>Command palette</DialogTitle>
         </DialogHeader>

@@ -462,7 +462,7 @@ export function UserAccessManagement() {
       </Dialog>
 
       <Dialog open={profileDialogOpen} onOpenChange={setProfileDialogOpen}>
-        <DialogContent className="max-w-5xl">
+        <DialogContent aria-describedby={undefined} className="max-w-5xl">
           <DialogHeader>
             <DialogTitle>Editar Perfil</DialogTitle>
           </DialogHeader>
