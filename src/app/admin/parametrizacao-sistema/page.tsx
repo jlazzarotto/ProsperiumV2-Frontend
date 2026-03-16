@@ -51,8 +51,8 @@ export default function ParametrizacaoSistemaPage() {
 
   const companyId = useMemo(() => {
     if (selectedCompanyId) return Number(selectedCompanyId)
-    if (!isRoot) return user?.companyIds?.[0] ?? 0
-    return 0
+    if (!isRoot) return user?.companyIds?.[0] ?? null
+    return null
   }, [selectedCompanyId, isRoot, user?.companyIds])
 
   const typeOptions = useMemo(() => {

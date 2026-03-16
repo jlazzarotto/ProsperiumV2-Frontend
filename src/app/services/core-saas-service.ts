@@ -197,3 +197,18 @@ export async function updateUnidade(id: number, payload: {
   const response = await httpClient.put<ItemResponse<UnidadeItem>>(`/v1/unidades/${id}`, payload)
   return response.data.item
 }
+
+export interface TenantProvisionResult {
+  status: 'success' | 'already_applied' | 'failure'
+  message: string
+  databaseKey: string
+  version: string
+  statementsTotal: number
+  statementsExecuted: number
+  errors?: Array<{ statement: number; error: string }>
+}
+
+export async function provisionTenantDatabase(databaseKey: string): Promise<TenantProvisionResult> {
+  const response = await httpClient.post<{ success: boolean; data: TenantProvisionResult }>('/v1/admin/tenant-provision', { databaseKey })
+  return response.data
+}
