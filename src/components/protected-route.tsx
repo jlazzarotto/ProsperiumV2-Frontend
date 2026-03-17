@@ -3,14 +3,26 @@
 import { useEffect } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import { useAuth } from "@/app/contexts/auth-context"
+import { useCompany } from "@/app/contexts/company-context"
 import { getModuloByPath } from "@/types/permissions"
+import { SelectCompanyGate } from "@/components/select-company-gate"
+import { COMPANY_GUARD_EXCLUDED_PREFIXES } from "@/config/company-guard"
 
 interface ProtectedRouteProps {
   children: React.ReactNode
 }
 
+// Política: DENY BY DEFAULT
+// Retorna true se a rota NÃO está na lista de exclusões → precisa de company
+function requiresCompanySelection(pathname: string): boolean {
+  return !COMPANY_GUARD_EXCLUDED_PREFIXES.some((excluded) =>
+    pathname === excluded || pathname.startsWith(excluded + "/")
+  )
+}
+
 export function ProtectedRoute({ children }: ProtectedRouteProps) {
-  const { user, loading, canAccess } = useAuth()
+  const { user, loading, canAccess, isRoot } = useAuth()
+  const { selectedCompanyId } = useCompany()
   const router = useRouter()
   const pathname = usePathname()
   const modulo = getModuloByPath(pathname)
@@ -45,6 +57,12 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
 
   if (modulo && !canAccess(modulo, 'ver')) {
     return null
+  }
+
+  // Política deny-by-default: ROLE_ROOT deve ter company selecionada em qualquer rota
+  // não listada explicitamente em COMPANY_GUARD_EXCLUDED_PREFIXES
+  if (isRoot && requiresCompanySelection(pathname) && !selectedCompanyId) {
+    return <SelectCompanyGate />
   }
 
   // Se estiver autenticado, renderizar o conteúdo

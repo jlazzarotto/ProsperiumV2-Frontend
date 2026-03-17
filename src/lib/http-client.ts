@@ -29,6 +29,15 @@ class HttpClient {
           if (token) {
             config.headers.Authorization = `Bearer ${token}`
           }
+
+          // Enviar company selecionada como header para resolução do tenant DB
+          // Não sobrescrever se o chamador já definiu explicitamente (ex: chamadas cross-company)
+          if (!config.headers['X-Company-Id']) {
+            const companyId = sessionStorage.getItem('prosperium_selected_company_id')
+            if (companyId) {
+              config.headers['X-Company-Id'] = companyId
+            }
+          }
         }
 
         console.log(`[HTTP] ${config.method?.toUpperCase()} ${config.url}`, config.data)
@@ -55,6 +64,19 @@ class HttpClient {
           const status = error.response.status
           const data = error.response.data as { message?: string; error?: string; details?: unknown }
           const isLoginRequest = error.config?.url?.includes('/login')
+          const errorMessage = (data.message || data.error || '') as string
+
+          // Erro 400: requer seleção de company
+          if (status === 400 && !isLoginRequest && typeof window !== 'undefined') {
+            if (errorMessage.toLowerCase().includes('grupo econômico') ||
+                errorMessage.toLowerCase().includes('company')) {
+              // Trigger company selector modal via custom event
+              window.dispatchEvent(new CustomEvent('require-company-selection', {
+                detail: { message: errorMessage }
+              }))
+              return Promise.reject(error)
+            }
+          }
 
           // Apenas tratar logout automático para 401 em requisições não-login
           if (status === 401 && !isLoginRequest && typeof window !== 'undefined') {
@@ -66,7 +88,6 @@ class HttpClient {
 
           // Para erros 500 com indicação de problema de autenticação
           if (status === 500 && !isLoginRequest) {
-            const errorMessage = data.message || data.error || ''
             const isAuthError = errorMessage.toLowerCase().includes('token') ||
                                 errorMessage.toLowerCase().includes('autenticação') ||
                                 errorMessage.toLowerCase().includes('unauthorized')

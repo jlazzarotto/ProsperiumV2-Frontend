@@ -11,6 +11,7 @@ interface AuthContextType {
   user: AuthUser | null
   loading: boolean
   error: string | null
+  isRoot: boolean
   isAdmin: boolean
   signIn: (email: string, password: string) => Promise<void>
   signOut: () => Promise<void>
@@ -37,6 +38,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     setLoading(false)
   }, [])
+
+  const isRoot = Boolean(user?.roles?.includes('ROLE_ROOT'))
 
   const isAdmin = Boolean(
     user?.roles?.includes('ROLE_ROOT') || user?.roles?.includes('ROLE_ADMIN')
@@ -119,6 +122,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       authService.logout()
       setUser(null)
+      // Clear all company-related sessionStorage on logout
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.removeItem('prosperium_selected_company_id')
+        sessionStorage.removeItem('prosperium_selected_company_name')
+        // Clear any empresa-related keys
+        Object.keys(sessionStorage).forEach(key => {
+          if (key.startsWith('prosperium_') && key.includes('empresa')) {
+            sessionStorage.removeItem(key)
+          }
+        })
+      }
 
       customToast.info("Logout realizado com sucesso!", {
         position: 'top-right',
@@ -140,6 +154,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     user,
     loading,
     error,
+    isRoot,
     isAdmin,
     signIn,
     signOut,

@@ -61,7 +61,10 @@ export async function getPessoas(companyId: number, tipoPessoa?: string, status?
   const params = new URLSearchParams({ companyId: String(companyId) })
   if (tipoPessoa) params.set('tipoPessoa', tipoPessoa)
   if (status) params.set('status', status)
-  const response = await httpClient.get<ListResponse<PessoaItem>>(`/v1/pessoas?${params}`)
+  const response = await httpClient.get<ListResponse<PessoaItem>>(
+    `/v1/pessoas?${params}`,
+    { headers: { 'X-Company-Id': String(companyId) } }
+  )
   return response.data.items
 }
 

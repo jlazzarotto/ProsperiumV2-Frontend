@@ -5,6 +5,7 @@ import {
   Eye,
   EyeOff,
   KeyRound,
+  Loader2,
   Lock,
   Pencil,
   Plus,
@@ -38,6 +39,7 @@ import {
   desbloquearUser,
   type UserItem,
 } from "@/app/services/identity-service"
+import { getPessoas, type PessoaItem } from "@/app/services/pessoas-service"
 import customToast from "@/components/ui/custom-toast"
 import { cn } from "@/lib/utils"
 
@@ -156,6 +158,11 @@ export default function CadastroUsuariosPage() {
   const [userForm, setUserForm] = useState<UserForm>(USER_FORM_INITIAL)
   const [showPassword, setShowPassword] = useState(false)
 
+  // Lookup de pessoas para o form de criação
+  const [pessoaId, setPessoaId] = useState<string>("")
+  const [pessoas, setPessoas] = useState<PessoaItem[]>([])
+  const [loadingPessoas, setLoadingPessoas] = useState(false)
+
   const isRoot = user?.roles?.includes("ROLE_ROOT") ?? false
   const isAdmin = user?.roles?.includes("ROLE_ADMIN") ?? false
   const canViewModule = canAccess("admin.cadastro_usuarios", "ver")
@@ -210,8 +217,43 @@ export default function CadastroUsuariosPage() {
   const openCreateDialog = () => {
     setEditingUserId(null)
     setUserForm(USER_FORM_INITIAL)
+    setPessoaId("")
+    setPessoas([])
     setShowPassword(false)
     setDialogOpen(true)
+  }
+
+  // Ao selecionar Grupo Econômico no form de criação: busca pessoas (classificacao 'C') do tenant
+  const handleCreateCompanyChange = async (value: string) => {
+    const companyId = value === "__none__" ? "" : value
+    setUserForm((prev) => ({ ...prev, companyId, nome: "", email: "" }))
+    setPessoaId("")
+    setPessoas([])
+
+    if (!companyId) return
+
+    setLoadingPessoas(true)
+    try {
+      const all = await getPessoas(Number(companyId), undefined, "active")
+      setPessoas(all.filter((p) => p.classificacao?.includes("C")))
+    } catch {
+      customToast.error("Erro ao buscar pessoas do grupo econômico.")
+    } finally {
+      setLoadingPessoas(false)
+    }
+  }
+
+  // Ao selecionar Nome: preenche nome e email a partir da pessoa selecionada
+  const handlePessoaChange = (id: string) => {
+    setPessoaId(id)
+    const pessoa = pessoas.find((p) => String(p.id) === id)
+    if (pessoa) {
+      setUserForm((prev) => ({
+        ...prev,
+        nome: pessoa.nomeRazao,
+        email: pessoa.emailPrincipal ?? "",
+      }))
+    }
   }
 
   const openEditDialog = (u: UserItem) => {
@@ -619,63 +661,19 @@ export default function CadastroUsuariosPage() {
 
           <ScrollArea className="max-h-[65vh] px-6 py-5">
             <div className="space-y-5">
-              <FormSection icon={Users} title="Dados pessoais">
-                <div className="grid gap-4">
-                  <Field>
-                    <Label htmlFor="user-nome">Nome completo *</Label>
-                    <Input
-                      id="user-nome"
-                      className="h-11 rounded-xl border-slate-200 bg-white"
-                      placeholder="Nome do usuario"
-                      value={userForm.nome}
-                      onChange={(e) => setUserForm((prev) => ({ ...prev, nome: e.target.value }))}
-                    />
-                  </Field>
-
-                  <Field>
-                    <Label htmlFor="user-email">Email *</Label>
-                    <Input
-                      id="user-email"
-                      type="email"
-                      className="h-11 rounded-xl border-slate-200 bg-white"
-                      placeholder="usuario@empresa.com"
-                      value={userForm.email}
-                      onChange={(e) => setUserForm((prev) => ({ ...prev, email: e.target.value }))}
-                    />
-                  </Field>
-
-                  <Field>
-                    <Label htmlFor="user-password">{editingUserId ? "Nova senha (deixe em branco para manter)" : "Senha *"}</Label>
-                    <div className="relative">
-                      <Input
-                        id="user-password"
-                        type={showPassword ? "text" : "password"}
-                        className="h-11 rounded-xl border-slate-200 bg-white pr-12"
-                        placeholder={editingUserId ? "Deixe em branco para manter a atual" : "Minimo 8 caracteres"}
-                        value={userForm.password}
-                        onChange={(e) => setUserForm((prev) => ({ ...prev, password: e.target.value }))}
-                      />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="absolute right-1 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                        onClick={() => setShowPassword((prev) => !prev)}
-                      >
-                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                      </Button>
-                    </div>
-                  </Field>
-                </div>
-              </FormSection>
-
               <FormSection icon={Shield} title="Acesso e permissoes">
                 <div className="grid gap-4 md:grid-cols-2">
                   <Field>
                     <Label>Grupo Economico</Label>
                     <Select
                       value={userForm.companyId || "__none__"}
-                      onValueChange={(value) => setUserForm((prev) => ({ ...prev, companyId: value === "__none__" ? "" : value }))}
+                      onValueChange={(value) => {
+                        if (!editingUserId) {
+                          void handleCreateCompanyChange(value)
+                        } else {
+                          setUserForm((prev) => ({ ...prev, companyId: value === "__none__" ? "" : value }))
+                        }
+                      }}
                     >
                       <SelectTrigger className="h-11 rounded-xl border-slate-200 bg-white">
                         <SelectValue placeholder="Selecione o grupo" />
@@ -694,7 +692,7 @@ export default function CadastroUsuariosPage() {
                     <Select
                       value={userForm.role}
                       onValueChange={(value) => setUserForm((prev) => ({ ...prev, role: value }))}
-                      disabled={!isRoot}
+                      disabled={(!editingUserId && !pessoaId) || !isRoot}
                     >
                       <SelectTrigger className="h-11 rounded-xl border-slate-200 bg-white">
                         <SelectValue />
@@ -711,6 +709,7 @@ export default function CadastroUsuariosPage() {
                     <Select
                       value={userForm.status}
                       onValueChange={(value: UserStatus) => setUserForm((prev) => ({ ...prev, status: value }))}
+                      disabled={!editingUserId && !pessoaId}
                     >
                       <SelectTrigger className="h-11 rounded-xl border-slate-200 bg-white">
                         <SelectValue />
@@ -728,6 +727,7 @@ export default function CadastroUsuariosPage() {
                     <Select
                       value={userForm.mfaHabilitado ? "sim" : "nao"}
                       onValueChange={(value) => setUserForm((prev) => ({ ...prev, mfaHabilitado: value === "sim" }))}
+                      disabled={!editingUserId && !pessoaId}
                     >
                       <SelectTrigger className="h-11 rounded-xl border-slate-200 bg-white">
                         <SelectValue />
@@ -737,6 +737,86 @@ export default function CadastroUsuariosPage() {
                         <SelectItem value="sim">Habilitado</SelectItem>
                       </SelectContent>
                     </Select>
+                  </Field>
+                </div>
+              </FormSection>
+
+              <FormSection icon={Users} title="Dados pessoais">
+                <div className="grid gap-4">
+                  <Field>
+                    <Label htmlFor="user-nome">Nome completo *</Label>
+                    {!editingUserId ? (
+                      <Select
+                        value={pessoaId || "__none__"}
+                        onValueChange={handlePessoaChange}
+                        disabled={!userForm.companyId || loadingPessoas}
+                      >
+                        <SelectTrigger className="h-11 rounded-xl border-slate-200 bg-white">
+                          {loadingPessoas ? (
+                            <span className="flex items-center gap-2 text-slate-400">
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                              Carregando colaboradores...
+                            </span>
+                          ) : (
+                            <SelectValue placeholder={userForm.companyId ? "Selecione o colaborador" : "Selecione o grupo economico primeiro"} />
+                          )}
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__" disabled>Selecione o colaborador</SelectItem>
+                          {pessoas.map((p) => (
+                            <SelectItem key={p.id} value={String(p.id)}>{p.nomeRazao}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        id="user-nome"
+                        className="h-11 rounded-xl border-slate-200 bg-white"
+                        placeholder="Nome do usuario"
+                        value={userForm.nome}
+                        onChange={(e) => setUserForm((prev) => ({ ...prev, nome: e.target.value }))}
+                      />
+                    )}
+                  </Field>
+
+                  <Field>
+                    <Label htmlFor="user-email">Email *</Label>
+                    <Input
+                      id="user-email"
+                      type="email"
+                      className="h-11 rounded-xl border-slate-200 bg-white"
+                      placeholder="usuario@empresa.com"
+                      value={userForm.email}
+                      onChange={(e) => {
+                        if (editingUserId) setUserForm((prev) => ({ ...prev, email: e.target.value }))
+                      }}
+                      readOnly={!editingUserId}
+                      disabled={!editingUserId && !pessoaId}
+                    />
+                  </Field>
+
+                  <Field>
+                    <Label htmlFor="user-password">{editingUserId ? "Nova senha (deixe em branco para manter)" : "Senha *"}</Label>
+                    <div className="relative">
+                      <Input
+                        id="user-password"
+                        type={showPassword ? "text" : "password"}
+                        className="h-11 rounded-xl border-slate-200 bg-white pr-12"
+                        placeholder={editingUserId ? "Deixe em branco para manter a atual" : "Minimo 8 caracteres"}
+                        value={userForm.password}
+                        onChange={(e) => setUserForm((prev) => ({ ...prev, password: e.target.value }))}
+                        disabled={!editingUserId && !pessoaId}
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="absolute right-1 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                        onClick={() => setShowPassword((prev) => !prev)}
+                      >
+                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </Button>
+                    </div>
                   </Field>
                 </div>
               </FormSection>

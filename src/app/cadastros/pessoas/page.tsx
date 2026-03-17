@@ -28,6 +28,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useAuth } from "@/app/contexts/auth-context"
+import { useCompany } from "@/app/contexts/company-context"
 import {
   getPessoas,
   createPessoa,
@@ -48,7 +49,7 @@ import {
 import { getCompanies, type CompanyItem } from "@/app/services/core-saas-service"
 import customToast from "@/components/ui/custom-toast"
 import { cn } from "@/lib/utils"
-import { maskCEP, unmaskNumbers } from "@/lib/masks"
+import { maskCEP, maskCPF, maskCNPJ, maskPhone, unmaskNumbers } from "@/lib/masks"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -135,16 +136,18 @@ const EMPTY_CONTATO: ContatoForm = {
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 function mapPessoaToForm(p: PessoaItem): CapaForm {
+  const docRaw = p.documento ?? ""
+  const documento = p.tipoPessoa === "PJ" ? maskCNPJ(docRaw) : maskCPF(docRaw)
   return {
     companyId: String(p.companyId),
     tipoPessoa: p.tipoPessoa,
     classificacao: parseClassificacao(p.classificacao),
     nomeRazao: p.nomeRazao ?? "",
     nomeFantasia: p.nomeFantasia ?? "",
-    documento: p.documento ?? "",
+    documento,
     inscricaoEstadual: p.inscricaoEstadual ?? "",
     emailPrincipal: p.emailPrincipal ?? "",
-    telefonePrincipal: p.telefonePrincipal ?? "",
+    telefonePrincipal: maskPhone(p.telefonePrincipal ?? ""),
     status: (p.status as PessoaStatus) ?? "active",
   }
 }
@@ -217,6 +220,7 @@ function Field({ label, children, className }: { label: string; children: ReactN
 
 export default function PessoasPage() {
   const { user, canAccess, isRoot, isAdmin } = useAuth()
+  const { selectedCompanyId: globalSelectedCompanyId, setSelectedCompanyId: setGlobalSelectedCompanyId } = useCompany()
 
   const canViewModule = canAccess("cadastros.pessoas", "ver")
   const canCreate = canAccess("cadastros.pessoas.create_edit", "ver") || isRoot || isAdmin
@@ -236,7 +240,6 @@ export default function PessoasPage() {
   const [searchTerm, setSearchTerm] = useState("")
   const [filterStatus, setFilterStatus] = useState<string>("all")
   const [filterTipo, setFilterTipo] = useState<string>("all")
-  const [selectedCompanyId, setSelectedCompanyId] = useState<string>("")
 
   // Dialogo
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -252,10 +255,10 @@ export default function PessoasPage() {
 
   // ── Load ───────────────────────────────────────────────────────────────────
   const companyId = useMemo(() => {
-    if (selectedCompanyId) return Number(selectedCompanyId)
-    if (!isRoot && user?.companyId) return Number(user.companyId)
+    if (isRoot && globalSelectedCompanyId) return globalSelectedCompanyId
+    if (!isRoot && user?.companyIds?.[0]) return Number(user.companyIds[0])
     return companies[0]?.id ?? 0
-  }, [selectedCompanyId, isRoot, user, companies])
+  }, [isRoot, globalSelectedCompanyId, user, companies])
 
   useEffect(() => {
     getCompanies().then(setCompanies).catch(console.error)
@@ -562,18 +565,6 @@ export default function PessoasPage() {
         <Card className="border-slate-200/60 dark:border-slate-800/60">
           <CardContent className="p-4">
             <div className="flex flex-col sm:flex-row gap-3">
-              {isRoot && (
-                <Select value={selectedCompanyId} onValueChange={setSelectedCompanyId}>
-                  <SelectTrigger className="w-full sm:w-52 h-9 text-sm">
-                    <SelectValue placeholder="Selecionar company" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {companies.map((c) => (
-                      <SelectItem key={c.id} value={String(c.id)}>{c.nome}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
                 <Input
@@ -735,23 +726,6 @@ export default function PessoasPage() {
                       </SelectContent>
                     </Select>
                   </Field>
-                  {isRoot && !editingPessoa && (
-                    <Field label="Company (Tenant)">
-                      <Select
-                        value={capaForm.companyId}
-                        onValueChange={(v) => setCapaForm((f) => ({ ...f, companyId: v }))}
-                      >
-                        <SelectTrigger className="h-9 text-sm">
-                          <SelectValue placeholder="Selecionar company" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {companies.map((c) => (
-                            <SelectItem key={c.id} value={String(c.id)}>{c.nome}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </Field>
-                  )}
                   <Field label="Nome / Razão Social *" className="sm:col-span-2">
                     <Input
                       value={capaForm.nomeRazao}
@@ -816,7 +790,10 @@ export default function PessoasPage() {
                   <Field label={capaForm.tipoPessoa === "PJ" ? "CNPJ" : "CPF"}>
                     <Input
                       value={capaForm.documento}
-                      onChange={(e) => setCapaForm((f) => ({ ...f, documento: e.target.value }))}
+                      onChange={(e) => {
+                        const masked = capaForm.tipoPessoa === "PJ" ? maskCNPJ(e.target.value) : maskCPF(e.target.value)
+                        setCapaForm((f) => ({ ...f, documento: masked }))
+                      }}
                       placeholder={capaForm.tipoPessoa === "PJ" ? "00.000.000/0000-00" : "000.000.000-00"}
                       className="h-9 text-sm font-mono"
                       disabled={!canCreate && !canEdit}
@@ -849,7 +826,7 @@ export default function PessoasPage() {
                   <Field label="Telefone">
                     <Input
                       value={capaForm.telefonePrincipal}
-                      onChange={(e) => setCapaForm((f) => ({ ...f, telefonePrincipal: e.target.value }))}
+                      onChange={(e) => setCapaForm((f) => ({ ...f, telefonePrincipal: maskPhone(e.target.value) }))}
                       placeholder="(00) 00000-0000"
                       className="h-9 text-sm"
                       disabled={!canCreate && !canEdit}

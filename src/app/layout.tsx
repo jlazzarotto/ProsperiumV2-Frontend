@@ -5,6 +5,7 @@ import "./globals.css"
 import "react-toastify/dist/ReactToastify.css"
 import { ThemeProvider } from "@/components/theme-provider"
 import { AuthProvider } from "@/app/contexts/auth-context"
+import { CompanyProvider } from "@/app/contexts/company-context"
 import { ToastContainer } from "react-toastify"
 import ErrorToastProvider from "@/components/error-toast-provider"
 
@@ -32,19 +33,21 @@ export default function RootLayout({
       <body className={`${plusJakartaSans.variable} font-sans antialiased`} suppressHydrationWarning={true}>
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
           <AuthProvider>
-            <ErrorToastProvider />
-            {children}
-            <ToastContainer 
-              position="top-right"
-              autoClose={5000}
-              hideProgressBar={false}
-              newestOnTop={false}
-              closeOnClick
-              rtl={false}
-              pauseOnFocusLoss
-              draggable
-              pauseOnHover
-            />
+            <CompanyProvider>
+              <ErrorToastProvider />
+              {children}
+              <ToastContainer
+                position="top-right"
+                autoClose={5000}
+                hideProgressBar={false}
+                newestOnTop={false}
+                closeOnClick
+                rtl={false}
+                pauseOnFocusLoss
+                draggable
+                pauseOnHover
+              />
+            </CompanyProvider>
           </AuthProvider>
         </ThemeProvider>
       </body>

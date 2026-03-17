@@ -13,6 +13,7 @@ import { AlertCircle, Check, Loader2, Plus, Search, Settings2, X, XCircle } from
 import { motion } from "framer-motion"
 import customToast from "@/components/ui/custom-toast"
 import { useAuth } from "@/app/contexts/auth-context"
+import { useCompany } from "@/app/contexts/company-context"
 import {
   type ConfigParam,
   getConfigParams,
@@ -24,6 +25,7 @@ import { getCompanies, type CompanyItem } from "@/app/services/core-saas-service
 
 export default function ParametrizacaoSistemaPage() {
   const { user, hasPermission } = useAuth()
+  const { selectedCompanyId: globalSelectedCompanyId, setSelectedCompanyId: setGlobalCompanyId } = useCompany()
   const NEW_TYPE_OPTION = "__new_type__"
 
   const isRoot = user?.role === "ROLE_ROOT"
@@ -50,10 +52,10 @@ export default function ParametrizacaoSistemaPage() {
   const isEditing = useMemo(() => originalName !== null, [originalName])
 
   const companyId = useMemo(() => {
+    if (isRoot) return globalSelectedCompanyId ?? null
     if (selectedCompanyId) return Number(selectedCompanyId)
-    if (!isRoot) return user?.companyIds?.[0] ?? null
-    return null
-  }, [selectedCompanyId, isRoot, user?.companyIds])
+    return user?.companyIds?.[0] ?? null
+  }, [isRoot, globalSelectedCompanyId, selectedCompanyId, user?.companyIds])
 
   const typeOptions = useMemo(() => {
     const normalizedTypes = types
@@ -79,15 +81,15 @@ export default function ParametrizacaoSistemaPage() {
     )
   }, [params, searchTerm])
 
-  // Load companies for ROLE_ROOT and set default companyId
+  // Load companies list for ROLE_ROOT select; sync local state with global context
   useEffect(() => {
     const init = async () => {
       if (isRoot) {
         try {
           const items = await getCompanies()
           setCompanies(items)
-          if (items.length > 0 && !selectedCompanyId) {
-            setSelectedCompanyId(String(items[0].id))
+          if (globalSelectedCompanyId) {
+            setSelectedCompanyId(String(globalSelectedCompanyId))
           }
         } catch {
           customToast.error("Erro ao carregar companies")
@@ -100,7 +102,7 @@ export default function ParametrizacaoSistemaPage() {
       }
     }
     init()
-  }, [isRoot, user?.companyIds])
+  }, [isRoot, user?.companyIds, globalSelectedCompanyId])
 
   const loadParams = useCallback(async () => {
     if (!companyId) return
@@ -156,6 +158,7 @@ export default function ParametrizacaoSistemaPage() {
 
   const handleCompanyChange = (value: string) => {
     setSelectedCompanyId(value)
+    setGlobalCompanyId(Number(value))
     setParams([])
     setTypes([])
   }

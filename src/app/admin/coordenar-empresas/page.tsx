@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState, type ReactNode } from "react"
+import { useMemo, useState, type ReactNode } from "react"
 import {
   ArrowLeft,
   Building2,
@@ -26,13 +26,6 @@ import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useAuth } from "@/app/contexts/auth-context"
 import {
-  createEmpresa,
-  createCompany,
-  getCompanies,
-  getEmpresas,
-  getTenantOptions,
-  updateCompany,
-  updateEmpresa,
   type CompanyItem,
   type EmpresaItem,
   type TenantOption,
@@ -212,11 +205,9 @@ function formatCompanyScope(company: CompanyItem, empresasCount: number) {
 
 export default function CoordenarEmpresasPage() {
   const { user, canAccess } = useAuth()
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [companies, setCompanies] = useState<CompanyItem[]>([])
-  const [empresas, setEmpresas] = useState<EmpresaItem[]>([])
-  const [tenantOptions, setTenantOptions] = useState<TenantOption[]>([])
+  const [companies] = useState<CompanyItem[]>([])
+  const [empresas] = useState<EmpresaItem[]>([])
+  const [tenantOptions] = useState<TenantOption[]>([])
   const [filters, setFilters] = useState({
     search: "",
     status: "__all__",
@@ -237,29 +228,6 @@ export default function CoordenarEmpresasPage() {
   const canEditEmpresa = isRoot || isAdmin
   const canManageStatus = isRoot
   const canManageGrupoEconomico = isRoot
-
-  const load = async () => {
-    setLoading(true)
-    try {
-      const [companiesData, empresasData, tenantOptionsData] = await Promise.all([
-        getCompanies(),
-        getEmpresas(),
-        getTenantOptions().catch(() => [] as string[]),
-      ])
-      setCompanies(companiesData)
-      setEmpresas(empresasData)
-      setTenantOptions(tenantOptionsData)
-    } catch (error) {
-      console.error("Erro ao carregar companies/empresas:", error)
-      customToast.error("Erro ao carregar dados do modulo de empresas.")
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    void load()
-  }, [])
 
   const availableCompanyIds = useMemo(() => {
     if (isRoot) return null
@@ -369,46 +337,7 @@ export default function CoordenarEmpresasPage() {
   }
 
   const handleSaveGrupoEconomico = async () => {
-    if (!grupoForm.nome.trim()) {
-      customToast.error("Preencha o nome do grupo economico.")
-      return
-    }
-
-    if (!grupoForm.databaseKey) {
-      customToast.error("Selecione o database key.")
-      return
-    }
-
-    setSaving(true)
-    try {
-      const payload = {
-        nome: grupoForm.nome.trim(),
-        tenancyMode: grupoForm.tenancyMode,
-        databaseKey: grupoForm.databaseKey.trim() || undefined,
-        status: grupoForm.status,
-      }
-
-      if (editingGroupId) {
-        await updateCompany(editingGroupId, payload)
-      } else {
-        await createCompany(payload)
-      }
-
-      customToast.success(editingGroupId ? "Grupo economico atualizado com sucesso." : "Grupo economico criado com sucesso.")
-      setGrupoDialogOpen(false)
-      setEditingGroupId(null)
-      setGrupoForm(GRUPO_ECONOMICO_FORM_INITIAL)
-      await load()
-    } catch (error: any) {
-      customToast.error(
-        error?.response?.data?.error?.message ||
-        error?.response?.data?.message ||
-        error?.message ||
-        `Erro ao ${editingGroupId ? "atualizar" : "criar"} grupo economico.`
-      )
-    } finally {
-      setSaving(false)
-    }
+    customToast.info("Backend desativado para este módulo.")
   }
 
   const openEditEmpresaDialog = (empresa: EmpresaItem) => {
@@ -419,58 +348,7 @@ export default function CoordenarEmpresasPage() {
   }
 
   const handleSaveEmpresa = async () => {
-    if (!empresaForm.companyId || !empresaForm.razaoSocial.trim() || !empresaForm.apelido.trim()) {
-      customToast.error("Preencha grupo economico, razao social e apelido.")
-      setActiveTab("dados-basicos")
-      return
-    }
-
-    if (empresaForm.cpfCnpj && !validateDocument(empresaForm.cpfCnpj)) {
-      customToast.error("CPF/CNPJ invalido.")
-      setActiveTab("dados-basicos")
-      return
-    }
-
-    if (editingEmpresaId && !canEditEmpresa) {
-      customToast.error("Seu perfil nao pode editar empresas.")
-      return
-    }
-
-    if (!editingEmpresaId && !canCreateEmpresa) {
-      customToast.error("Somente ROLE_ROOT pode cadastrar empresas.")
-      return
-    }
-
-    if (!canManageStatus && empresaForm.status === "inactive") {
-      customToast.error("Somente ROLE_ROOT pode inativar empresas.")
-      return
-    }
-
-    setSaving(true)
-    try {
-      const payload = buildEmpresaPayload(empresaForm)
-
-      if (editingEmpresaId) {
-        await updateEmpresa(editingEmpresaId, payload)
-      } else {
-        await createEmpresa(payload)
-      }
-
-      customToast.success(editingEmpresaId ? "Empresa atualizada com sucesso." : "Empresa criada com sucesso.")
-      setEmpresaDialogOpen(false)
-      setEditingEmpresaId(null)
-      setEmpresaForm(EMPRESA_FORM_INITIAL)
-      await load()
-    } catch (error: any) {
-      customToast.error(
-        error?.response?.data?.error?.message ||
-        error?.response?.data?.message ||
-        error?.message ||
-        `Erro ao ${editingEmpresaId ? "atualizar" : "criar"} empresa.`
-      )
-    } finally {
-      setSaving(false)
-    }
+    customToast.info("Backend desativado para este módulo.")
   }
 
   return (
@@ -506,8 +384,8 @@ export default function CoordenarEmpresasPage() {
                     Voltar para Grupos Economicos
                   </Button>
                 )}
-                <Button variant="outline" onClick={() => void load()} disabled={loading}>
-                  <RefreshCw className={cn("mr-2 h-4 w-4", loading && "animate-spin")} />
+                <Button variant="outline" disabled>
+                  <RefreshCw className="mr-2 h-4 w-4" />
                   Atualizar
                 </Button>
                 {canManageGrupoEconomico && !selectedCompany && (
@@ -583,11 +461,7 @@ export default function CoordenarEmpresasPage() {
                 </div>
               </CardHeader>
               <CardContent className="grid gap-4 lg:grid-cols-2">
-                {loading ? (
-                  <div className="rounded-3xl border border-dashed border-slate-200 px-5 py-10 text-sm text-slate-500">
-                    Carregando grupos economicos...
-                  </div>
-                ) : companiesWithTotals.filter((company) => company.nome.toLowerCase().includes(filters.search.trim().toLowerCase())).length === 0 ? (
+                {companiesWithTotals.filter((company) => company.nome.toLowerCase().includes(filters.search.trim().toLowerCase())).length === 0 ? (
                   <div className="rounded-3xl border border-dashed border-slate-200 px-5 py-10 text-sm text-slate-500">
                     Nenhum grupo economico encontrado.
                   </div>
@@ -694,11 +568,7 @@ export default function CoordenarEmpresasPage() {
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {loading ? (
-                    <div className="rounded-3xl border border-dashed border-slate-200 px-5 py-10 text-sm text-slate-500">
-                      Carregando empresas...
-                    </div>
-                  ) : filteredEmpresas.length === 0 ? (
+                  {filteredEmpresas.length === 0 ? (
                     <div className="rounded-3xl border border-dashed border-slate-200 px-5 py-10 text-sm text-slate-500">
                       Nenhuma empresa encontrada com os filtros atuais.
                     </div>

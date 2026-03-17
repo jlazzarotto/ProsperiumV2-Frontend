@@ -212,3 +212,22 @@ export async function provisionTenantDatabase(databaseKey: string): Promise<Tena
   const response = await httpClient.post<{ success: boolean; data: TenantProvisionResult }>('/v1/admin/tenant-provision', { databaseKey })
   return response.data
 }
+
+export interface DashboardMetrics {
+  activeCompanies: number
+  empresas: {
+    total: number
+    active: number
+  }
+  unidades: {
+    total: number
+    active: number
+  }
+  sharedCompanies: number
+  dedicatedCompanies: number
+}
+
+export async function getDashboardSummary(): Promise<DashboardMetrics> {
+  const response = await httpClient.get<{ success: boolean; data: { metrics: DashboardMetrics } }>('/v1/dashboard/summary')
+  return response.data.metrics
+}

@@ -1,97 +1,123 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useState } from "react"
 import Link from "next/link"
 import {
   ArrowRight,
-  BadgeCheck,
   Banknote,
   Briefcase,
   Building2,
-  Clock3,
+  ChevronDown,
   Layers3,
-  LayoutGrid,
-  RefreshCw,
   Shield,
 } from "lucide-react"
 import { MainHeader } from "@/components/main-header"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import customToast from "@/components/ui/custom-toast"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { useAuth } from "@/app/contexts/auth-context"
-import { getCompanies, getEmpresas, getUnidades, type CompanyItem, type EmpresaItem, type UnidadeItem } from "@/app/services/core-saas-service"
+import { getDashboardSummary, getCompanies, getEmpresas, type CompanyItem, type EmpresaItem } from "@/app/services/core-saas-service"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Edit2 } from "lucide-react"
+
+interface Summary {
+  activeCompanies: number
+  activeEmpresas: number
+  activeUnidades: number
+  dedicatedCompanies: number
+  sharedCompanies: number
+  topCompanies: unknown[]
+  recentCompanies: unknown[]
+}
 
 export function HomeDashboard() {
   const { user } = useAuth()
+  const [summary, setSummary] = useState<Summary>({
+    activeCompanies: 0,
+    activeEmpresas: 0,
+    activeUnidades: 0,
+    dedicatedCompanies: 0,
+    sharedCompanies: 0,
+    topCompanies: [],
+    recentCompanies: [],
+  })
   const [loading, setLoading] = useState(true)
   const [companies, setCompanies] = useState<CompanyItem[]>([])
-  const [empresas, setEmpresas] = useState<EmpresaItem[]>([])
-  const [unidades, setUnidades] = useState<UnidadeItem[]>([])
-
-  const load = async () => {
-    setLoading(true)
-
-    try {
-      const [companiesData, empresasData, unidadesData] = await Promise.all([
-        getCompanies(),
-        getEmpresas(),
-        getUnidades(),
-      ])
-
-      setCompanies(companiesData)
-      setEmpresas(empresasData)
-      setUnidades(unidadesData)
-    } catch (error) {
-      console.error("Erro ao carregar dashboard da home:", error)
-      customToast.error("Erro ao carregar a home do sistema.", { position: "top-right" })
-    } finally {
-      setLoading(false)
-    }
-  }
+  const [editingCompany, setEditingCompany] = useState<CompanyItem | null>(null)
+  const [editCompanyDialog, setEditCompanyDialog] = useState(false)
+  const [expandedCompanyId, setExpandedCompanyId] = useState<number | null>(null)
+  const [companiesEmpresas, setCompaniesEmpresas] = useState<Record<number, EmpresaItem[]>>({})
+  const [editingEmpresa, setEditingEmpresa] = useState<EmpresaItem | null>(null)
+  const [editEmpresaDialog, setEditEmpresaDialog] = useState(false)
+  const isRoot = user?.roles?.includes("ROLE_ROOT") ?? false
 
   useEffect(() => {
+    const load = async () => {
+      try {
+        const [metrics, companiesData] = await Promise.all([
+          getDashboardSummary(),
+          getCompanies(),
+        ])
+        setSummary({
+          activeCompanies: metrics.activeCompanies,
+          activeEmpresas: metrics.empresas.active,
+          activeUnidades: metrics.unidades.active,
+          dedicatedCompanies: metrics.dedicatedCompanies,
+          sharedCompanies: metrics.sharedCompanies,
+          topCompanies: [],
+          recentCompanies: [],
+        })
+        setCompanies(companiesData)
+      } catch (error) {
+        console.error("Erro ao carregar dashboard:", error)
+      } finally {
+        setLoading(false)
+      }
+    }
     void load()
   }, [])
 
-  const summary = useMemo(() => {
-    const activeCompanies = companies.filter((company) => company.status === "active")
-    const activeEmpresas = empresas.filter((empresa) => empresa.status === "active")
-    const activeUnidades = unidades.filter((unidade) => unidade.status === "active")
-    const dedicatedCompanies = companies.filter((company) => company.tenantInstance.tenancyMode === "dedicated")
-    const sharedCompanies = companies.filter((company) => company.tenantInstance.tenancyMode === "shared")
-    const empresaCountByCompany = new Map<number, number>()
+  const handleEditCompany = (company: CompanyItem) => {
+    setEditingCompany(company)
+    setEditCompanyDialog(true)
+  }
 
-    for (const empresa of empresas) {
-      empresaCountByCompany.set(empresa.companyId, (empresaCountByCompany.get(empresa.companyId) ?? 0) + 1)
+  const handleEditEmpresa = (empresa: EmpresaItem) => {
+    setEditingEmpresa(empresa)
+    setEditEmpresaDialog(true)
+  }
+
+  const handleToggleExpand = async (company: CompanyItem) => {
+    if (expandedCompanyId === company.id) {
+      // Fechar se já está aberto
+      setExpandedCompanyId(null)
+    } else {
+      // Abrir e carregar empresas se não estiverem carregadas
+      setExpandedCompanyId(company.id)
+      // Salvar nome da company no sessionStorage para o banner do header
+      sessionStorage.setItem("prosperium_selected_company_name", company.nome)
+      // Dispatch custom event so hook listeners are notified
+      window.dispatchEvent(new CustomEvent("companyNameChanged", { detail: company.nome }))
+      if (!companiesEmpresas[company.id]) {
+        try {
+          const empresas = await getEmpresas(company.id)
+          setCompaniesEmpresas((prev) => ({
+            ...prev,
+            [company.id]: empresas,
+          }))
+        } catch (error) {
+          console.error("Erro ao carregar empresas:", error)
+        }
+      }
     }
-
-    const topCompanies = companies
-      .map((company) => ({
-        ...company,
-        empresas: empresaCountByCompany.get(company.id) ?? 0,
-      }))
-      .sort((a, b) => b.empresas - a.empresas)
-      .slice(0, 4)
-
-    const recentCompanies = [...companies]
-      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
-      .slice(0, 5)
-
-    return {
-      activeCompanies: activeCompanies.length,
-      activeEmpresas: activeEmpresas.length,
-      activeUnidades: activeUnidades.length,
-      dedicatedCompanies: dedicatedCompanies.length,
-      sharedCompanies: sharedCompanies.length,
-      topCompanies,
-      recentCompanies,
-    }
-  }, [companies, empresas, unidades])
+  }
 
   const kpis = [
     {
-      label: "Companies ativas",
+      label: "Grupos Econômicos ativos",
       value: summary.activeCompanies,
       tone: "text-sky-600",
       icon: Layers3,
@@ -108,12 +134,6 @@ export function HomeDashboard() {
       tone: "text-amber-600",
       icon: Briefcase,
     },
-    {
-      label: "Tenants dedicated",
-      value: summary.dedicatedCompanies,
-      tone: "text-rose-600",
-      icon: Shield,
-    },
   ]
 
   return (
@@ -127,21 +147,17 @@ export function HomeDashboard() {
                 <div className="mb-3 flex flex-wrap items-center gap-2">
                   <Badge variant="outline">{user?.role ?? "Sem papel"}</Badge>
                   <Badge variant="secondary">
-                    {loading ? "Atualizando" : `${companies.length} companies no radar`}
+                    {loading ? "Carregando..." : "Dashboard carregado"}
                   </Badge>
                 </div>
                 <h1 className="max-w-2xl text-3xl font-semibold tracking-tight text-slate-950 dark:text-white">
                   Dashboard executivo do ecossistema Prosperium
                 </h1>
                 <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-300">
-                  Estrutura inspirada no dashboard legado, reorganizada para a operação atual. A home prioriza
-                  indicadores de tenancy, cobertura operacional e atalhos de gestão.
+                  Bem-vindo ao dashboard executivo. Selecione um Grupo Econômico para acessar os módulos operacionais
+                  ou gerenciar a estrutura de companies e empresas.
                 </p>
                 <div className="mt-5 flex flex-wrap gap-3">
-                  <Button variant="outline" onClick={() => void load()} disabled={loading}>
-                    <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-                    Atualizar home
-                  </Button>
                   <Button asChild>
                     <Link href="/financeiro">
                       Ver visão inicial anterior
@@ -151,30 +167,12 @@ export function HomeDashboard() {
                 </div>
               </div>
 
-              <div className="grid gap-2.5 sm:grid-cols-2">
+              <div>
                 <HighlightCard
                   title="Modelo de tenancy"
                   value={`${summary.sharedCompanies} shared / ${summary.dedicatedCompanies} dedicated`}
                   icon={Banknote}
                   tone="from-sky-500/15 to-cyan-500/5"
-                />
-                <HighlightCard
-                  title="Cobertura de acesso"
-                  value={`${user?.companyIds?.length ?? 0} companies no vínculo`}
-                  icon={BadgeCheck}
-                  tone="from-emerald-500/15 to-green-500/5"
-                />
-                <HighlightCard
-                  title="Base operacional"
-                  value={`${empresas.length} empresas e ${unidades.length} unidades`}
-                  icon={LayoutGrid}
-                  tone="from-amber-500/15 to-orange-500/5"
-                />
-                <HighlightCard
-                  title="Última leitura"
-                  value={loading ? "Sincronizando..." : "Atualizado agora"}
-                  icon={Clock3}
-                  tone="from-violet-500/15 to-fuchsia-500/5"
                 />
               </div>
             </div>
@@ -202,94 +200,245 @@ export function HomeDashboard() {
             })}
           </div>
 
-          <div className="mt-4 grid gap-4 lg:grid-cols-[1.25fr_0.75fr]">
-            <Card className="border-slate-200/80 bg-white/85 dark:border-slate-800 dark:bg-slate-900/70">
-              <CardHeader>
-                <CardTitle className="text-base">Companies com maior distribuição</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {loading ? (
-                  <p className="text-sm text-slate-500">Carregando distribuição...</p>
-                ) : summary.topCompanies.length === 0 ? (
-                  <p className="text-sm text-slate-500">Nenhuma company encontrada.</p>
-                ) : (
-                  summary.topCompanies.map((company) => (
-                    <div
-                      key={company.id}
-                      className="rounded-2xl border border-slate-200/80 px-4 py-3 dark:border-slate-800"
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <div className="font-medium text-slate-900 dark:text-white">{company.nome}</div>
-                          <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                            {company.tenantInstance.tenancyMode} • DB {company.tenantInstance.databaseKey}
+          <div className="mt-6 overflow-hidden rounded-[28px] border border-slate-200/80 bg-white/85 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-900/70">
+            <div className="px-6 py-5">
+              <h2 className="mb-4 text-xl font-semibold text-slate-900 dark:text-white">Grupos Econômicos</h2>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Nome</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Tenancy Mode</TableHead>
+                    <TableHead>Database Key</TableHead>
+                    <TableHead className="text-right">Ações</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {companies.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={5} className="text-center py-8 text-slate-500">
+                        {loading ? "Carregando..." : "Nenhum grupo econômico encontrado"}
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    companies.flatMap((company) => [
+                      <TableRow key={company.id}>
+                        <TableCell className="font-medium">{company.nome}</TableCell>
+                        <TableCell>
+                          <Badge variant={company.status === "active" ? "default" : "secondary"}>
+                            {company.status === "active" ? "Ativo" : "Inativo"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">
+                            {company.tenantInstance.tenancyMode === "shared" ? "Shared" : "Dedicated"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="font-mono text-xs">{company.tenantInstance.databaseKey}</TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              title="Editar Company"
+                              onClick={() => handleEditCompany(company)}
+                            >
+                              <Edit2 className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              title={expandedCompanyId === company.id ? "Ocultar Empresas" : "Ver Empresas"}
+                              onClick={() => handleToggleExpand(company)}
+                            >
+                              <ChevronDown
+                                className={`h-4 w-4 transition-transform ${
+                                  expandedCompanyId === company.id ? "rotate-180" : ""
+                                }`}
+                              />
+                            </Button>
                           </div>
-                        </div>
-                        <div className="text-right">
-                          <div className="text-lg font-semibold text-slate-900 dark:text-white">{company.empresas}</div>
-                          <div className="text-xs text-slate-500 dark:text-slate-400">empresas</div>
-                        </div>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </CardContent>
-            </Card>
-
-            <Card className="border-slate-200/80 bg-white/85 dark:border-slate-800 dark:bg-slate-900/70">
-              <CardHeader>
-                <CardTitle className="text-base">Próximos acessos seguros</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <QuickLink href="/admin/coordenar-empresas" label="Governar companies e empresas" />
-                <QuickLink href="/admin/coordenar-unidades" label="Revisar unidades de negócio" />
-                <QuickLink href="/financeiro" label="Abrir visão inicial do sistema" />
-                <QuickLink href="/admin/permissoes" label="Gerenciar acessos e perfis" />
-              </CardContent>
-            </Card>
+                        </TableCell>
+                      </TableRow>,
+                      // Row de expansão com subtabela
+                      expandedCompanyId === company.id && (
+                        <TableRow key={`${company.id}-expanded`} className="bg-slate-50 dark:bg-slate-800/30">
+                          <TableCell colSpan={5} className="p-0">
+                            <div className="p-4">
+                              <div className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">
+                                Empresas do grupo {company.nome}
+                              </div>
+                              <Table>
+                                <TableHeader>
+                                  <TableRow className="border-slate-200 dark:border-slate-700">
+                                    <TableHead className="text-xs">Razão Social</TableHead>
+                                    <TableHead className="text-xs">Apelido</TableHead>
+                                    <TableHead className="text-xs">CNPJ/CPF</TableHead>
+                                    <TableHead className="text-xs">Status</TableHead>
+                                    <TableHead className="text-xs text-right">Ações</TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {companiesEmpresas[company.id]?.length === 0 ? (
+                                    <TableRow>
+                                      <TableCell colSpan={5} className="text-center py-6 text-slate-500 text-sm">
+                                        Nenhuma empresa encontrada
+                                      </TableCell>
+                                    </TableRow>
+                                  ) : (
+                                    companiesEmpresas[company.id]?.map((empresa) => (
+                                      <TableRow key={empresa.id} className="border-slate-200 dark:border-slate-700">
+                                        <TableCell className="text-sm">{empresa.razaoSocial}</TableCell>
+                                        <TableCell className="text-sm">{empresa.apelido || "-"}</TableCell>
+                                        <TableCell className="text-sm font-mono text-xs">
+                                          {empresa.cpfCnpj || empresa.cnpj || "-"}
+                                        </TableCell>
+                                        <TableCell className="text-sm">
+                                          <Badge variant={empresa.status === "active" ? "default" : "secondary"} className="text-xs">
+                                            {empresa.status === "active" ? "Ativo" : "Inativo"}
+                                          </Badge>
+                                        </TableCell>
+                                        <TableCell className="text-right">
+                                          <Button
+                                            size="sm"
+                                            variant="outline"
+                                            title="Editar Empresa"
+                                            onClick={() => handleEditEmpresa(empresa)}
+                                          >
+                                            <Edit2 className="h-4 w-4" />
+                                          </Button>
+                                        </TableCell>
+                                      </TableRow>
+                                    ))
+                                  )}
+                                </TableBody>
+                              </Table>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ),
+                    ])
+                  )}
+                </TableBody>
+              </Table>
+            </div>
           </div>
 
-          <div className="mt-4 grid gap-4 lg:grid-cols-[0.95fr_1.05fr]">
-            <Card className="border-slate-200/80 bg-white/85 dark:border-slate-800 dark:bg-slate-900/70">
-              <CardHeader>
-                <CardTitle className="text-base">Escopo autenticado</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3 text-sm text-slate-600 dark:text-slate-300">
-                <ScopeRow label="Usuário" value={user?.nome ?? "-"} />
-                <ScopeRow label="Email" value={user?.email ?? "-"} />
-                <ScopeRow label="Companies no vínculo" value={String(user?.companyIds?.length ?? 0)} />
-                <ScopeRow label="Empresas no vínculo" value={String(user?.empresaIds?.length ?? 0)} />
-                <ScopeRow label="Unidades no vínculo" value={String(user?.unidadeIds?.length ?? 0)} />
-              </CardContent>
-            </Card>
-
-            <Card className="border-slate-200/80 bg-white/85 dark:border-slate-800 dark:bg-slate-900/70">
-              <CardHeader>
-                <CardTitle className="text-base">Mudanças recentes em companies</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {loading ? (
-                  <p className="text-sm text-slate-500">Carregando atividades...</p>
-                ) : summary.recentCompanies.length === 0 ? (
-                  <p className="text-sm text-slate-500">Nenhuma alteração recente encontrada.</p>
-                ) : (
-                  summary.recentCompanies.map((company) => (
-                    <div key={company.id} className="flex items-start justify-between gap-3 rounded-xl border border-slate-200/80 px-4 py-3 dark:border-slate-800">
-                      <div>
-                        <div className="font-medium text-slate-900 dark:text-white">{company.nome}</div>
-                        <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                          Atualizado em {formatDateTime(company.updatedAt)}
-                        </div>
-                      </div>
-                      <Badge variant={company.status === "active" ? "default" : "secondary"}>
-                        {company.status}
-                      </Badge>
+          {/* Modal - Editar Company */}
+          <Dialog open={editCompanyDialog} onOpenChange={setEditCompanyDialog}>
+            <DialogContent className="sm:max-w-[500px]">
+              <DialogHeader>
+                <DialogTitle>Editar Grupo Econômico</DialogTitle>
+                <DialogDescription>
+                  Atualize as informações do grupo econômico {editingCompany?.nome}
+                </DialogDescription>
+              </DialogHeader>
+              {editingCompany && (
+                <div className="grid gap-4 py-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="edit-company-name">Nome</Label>
+                    <Input
+                      id="edit-company-name"
+                      defaultValue={editingCompany.nome}
+                      placeholder="Nome do grupo econômico"
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Status</Label>
+                    <div className="text-sm text-slate-600">
+                      {editingCompany.status === "active" ? "Ativo" : "Inativo"}
                     </div>
-                  ))
-                )}
-              </CardContent>
-            </Card>
-          </div>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Tenancy Mode</Label>
+                    <div className="text-sm text-slate-600">
+                      {editingCompany.tenantInstance.tenancyMode === "shared" ? "Shared" : "Dedicated"}
+                    </div>
+                  </div>
+                </div>
+              )}
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setEditCompanyDialog(false)}>
+                  Cancelar
+                </Button>
+                <Button onClick={() => setEditCompanyDialog(false)}>
+                  Salvar
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* Modal - Editar Empresa */}
+          <Dialog open={editEmpresaDialog} onOpenChange={setEditEmpresaDialog}>
+            <DialogContent className="sm:max-w-[600px]">
+              <DialogHeader>
+                <DialogTitle>Editar Empresa</DialogTitle>
+                <DialogDescription>
+                  Atualize as informações da empresa {editingEmpresa?.razaoSocial}
+                </DialogDescription>
+              </DialogHeader>
+              {editingEmpresa && (
+                <div className="grid gap-4 py-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="edit-empresa-razao-social">Razão Social</Label>
+                    <Input
+                      id="edit-empresa-razao-social"
+                      defaultValue={editingEmpresa.razaoSocial}
+                      placeholder="Nome completo da empresa"
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="edit-empresa-apelido">Apelido</Label>
+                    <Input
+                      id="edit-empresa-apelido"
+                      defaultValue={editingEmpresa.apelido || ""}
+                      placeholder="Nome reduzido da empresa"
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="edit-empresa-cnpj">CNPJ/CPF</Label>
+                    <Input
+                      id="edit-empresa-cnpj"
+                      defaultValue={editingEmpresa.cpfCnpj || editingEmpresa.cnpj || ""}
+                      placeholder="00.000.000/0000-00"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="grid gap-2">
+                      <Label htmlFor="edit-empresa-estado">Estado</Label>
+                      <Input
+                        id="edit-empresa-estado"
+                        defaultValue={editingEmpresa.estado || ""}
+                        placeholder="Estado"
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="edit-empresa-cidade">Cidade</Label>
+                      <Input
+                        id="edit-empresa-cidade"
+                        defaultValue={editingEmpresa.cidade || ""}
+                        placeholder="Cidade"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Status</Label>
+                    <div className="text-sm text-slate-600">
+                      {editingEmpresa.status === "active" ? "Ativo" : "Inativo"}
+                    </div>
+                  </div>
+                </div>
+              )}
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setEditEmpresaDialog(false)}>
+                  Cancelar
+                </Button>
+                <Button onClick={() => setEditEmpresaDialog(false)}>
+                  Salvar
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
     </>
@@ -320,32 +469,4 @@ function HighlightCard({
       </div>
     </div>
   )
-}
-
-function ScopeRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between border-b border-slate-200 pb-3 last:border-b-0 last:pb-0 dark:border-slate-800">
-      <span>{label}</span>
-      <span className="font-medium text-slate-900 dark:text-white">{value}</span>
-    </div>
-  )
-}
-
-function QuickLink({ href, label }: { href: string; label: string }) {
-  return (
-    <Link
-      href={href}
-      className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-900"
-    >
-      <span>{label}</span>
-      <ArrowRight className="h-4 w-4" />
-    </Link>
-  )
-}
-
-function formatDateTime(value: string) {
-  return new Intl.DateTimeFormat("pt-BR", {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(new Date(value))
 }

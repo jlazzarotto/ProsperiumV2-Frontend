@@ -3,9 +3,12 @@
 import { useAuth } from "@/app/contexts/auth-context"
 import { HomeDashboard } from "@/components/home-dashboard"
 import { LoginShell } from "@/components/login-shell"
+import { SelectCompanyModal } from "@/components/select-company-modal"
+import { useCompanySelector } from "@/hooks/use-company-selector"
 
 export default function Home() {
   const { user, loading } = useAuth()
+  const { showModal, closeModal } = useCompanySelector()
 
   if (loading) {
     return (
@@ -22,5 +25,11 @@ export default function Home() {
     return <LoginShell />
   }
 
-  return <HomeDashboard />
+  return (
+    <>
+      <HomeDashboard />
+      {/* Modal aparece apenas quando erro exige company selection (triggered via HTTP error) */}
+      <SelectCompanyModal isOpen={showModal} onClose={closeModal} />
+    </>
+  )
 }

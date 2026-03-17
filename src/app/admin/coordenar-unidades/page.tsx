@@ -12,10 +12,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge"
 import customToast from "@/components/ui/custom-toast"
 import { useAuth } from "@/app/contexts/auth-context"
+import { useCompany } from "@/app/contexts/company-context"
 import { createUnidade, getCompanies, getUnidades, updateUnidade, type CompanyItem, type UnidadeItem } from "@/app/services/core-saas-service"
 
 export default function CoordenarUnidadesPage() {
   const { user } = useAuth()
+  const { selectedCompanyId: globalSelectedCompanyId } = useCompany()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [companies, setCompanies] = useState<CompanyItem[]>([])
@@ -29,7 +31,8 @@ export default function CoordenarUnidadesPage() {
   const load = async () => {
     setLoading(true)
     try {
-      const [companiesData, unidadesData] = await Promise.all([getCompanies(), getUnidades()])
+      const companyFilter = isRoot ? (globalSelectedCompanyId ?? undefined) : undefined
+      const [companiesData, unidadesData] = await Promise.all([getCompanies(), getUnidades(companyFilter)])
       setCompanies(companiesData)
       setUnidades(unidadesData)
     } catch (error) {
@@ -42,7 +45,7 @@ export default function CoordenarUnidadesPage() {
 
   useEffect(() => {
     void load()
-  }, [])
+  }, [globalSelectedCompanyId])
 
   const companiesById = useMemo(
     () => new Map(companies.map((company) => [company.id, company])),
@@ -50,12 +53,9 @@ export default function CoordenarUnidadesPage() {
   )
 
   const defaultCompanyId = useMemo(() => {
-    if (isRoot) {
-      return ""
-    }
-
+    if (isRoot) return globalSelectedCompanyId ? String(globalSelectedCompanyId) : ""
     return user?.companyIds?.[0] ? String(user.companyIds[0]) : ""
-  }, [isRoot, user?.companyIds])
+  }, [isRoot, globalSelectedCompanyId, user?.companyIds])
 
   useEffect(() => {
     if (!form.companyId && defaultCompanyId) {

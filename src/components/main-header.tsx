@@ -16,6 +16,7 @@ import {
   Activity,
   LayoutGrid,
   Shield,
+  Building2,
 } from "lucide-react"
 import Image from "next/image"
 import { ModeToggle } from "./ModeToggle"
@@ -25,9 +26,17 @@ import { useAuth } from "@/app/contexts/auth-context"
 import { CommandPalette } from "./command-palette"
 import { getNavigationCatalog, resolveNavigationIcon } from "@/lib/navigation-catalog"
 import type { NavigationCategory } from "@/types/navigation"
+import { ChangeCompanyModal } from "./change-company-modal"
+import { useCompany } from "@/app/contexts/company-context"
+import { Badge } from "@/components/ui/badge"
+import { useSelectedCompanyName } from "@/hooks/use-selected-company-name"
 
 export function MainHeader() {
-  const { signOut, user, canAccess } = useAuth()
+  const { signOut, user, canAccess, isRoot } = useAuth()
+  const { selectedCompanyId } = useCompany()
+  const [companyModalOpen, setCompanyModalOpen] = React.useState(false)
+  const selectedCompanyName = useSelectedCompanyName()
+
   const navigationCatalog = React.useMemo(
     () => getNavigationCatalog(user?.menu as NavigationCategory[] | undefined),
     [user?.menu]
@@ -37,25 +46,47 @@ export function MainHeader() {
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }))
   }
 
-  // Filtrar menu por permissoes
+  // Filtrar menu por permissoes e injetar item "Mudar Company" para ROLE_ROOT
   const filteredMenuItems = navigationCatalog
-    .map(category => ({
-      ...category,
-      icon: resolveCategoryIcon(category.code),
-      items: category.items.filter(item => {
+    .map(category => {
+      const filteredItems = category.items.filter(item => {
         if (item.locked) return true // Itens locked sempre aparecem (desabilitados)
         if (!item.permissionKey) return true // Sem permissionKey = sempre visivel
         return canAccess(item.permissionKey, 'ver')
       }).map(item => ({
         ...item,
         icon: React.createElement(resolveNavigationIcon(item.iconKey), { size: 16, className: "mr-2 text-slate-500" }),
-      })),
-    }))
+      }))
+
+      // Injetar "Mudar Company" no início do menu Administrador para ROLE_ROOT
+      if (isRoot && category.code === "admin") {
+        return {
+          ...category,
+          icon: resolveCategoryIcon(category.code),
+          items: [
+            {
+              label: selectedCompanyId ? "Mudar Company" : "Selecionar Company",
+              icon: <Building2 size={16} className="mr-2 text-blue-500" />,
+              onClick: () => setCompanyModalOpen(true),
+            },
+            ...filteredItems,
+          ],
+        }
+      }
+
+      return {
+        ...category,
+        icon: resolveCategoryIcon(category.code),
+        items: filteredItems,
+      }
+    })
     .filter(category => category.items.length > 0)
 
   return (
     <>
       <CommandPalette />
+      <ChangeCompanyModal open={companyModalOpen} onClose={() => setCompanyModalOpen(false)} />
+
       <header className="border-b border-slate-200/60 dark:border-slate-800/60 bg-white/80 dark:bg-slate-950/80 backdrop-blur-xl sticky top-0 z-40">
         <div className="flex items-center h-14 w-full px-4 md:px-6 lg:px-8">
           {/* Logo */}
@@ -160,11 +191,37 @@ export function MainHeader() {
             </button>
 
             <div className="lg:hidden ml-0.5">
-              <MobileMenu menuItems={navigationCatalog} />
+              <MobileMenu menuItems={navigationCatalog} onOpenCompanyModal={() => setCompanyModalOpen(true)} />
             </div>
           </div>
         </div>
       </header>
+
+      {/* Company Status Banner para ROLE_ROOT - Exibido abaixo do menu */}
+      {isRoot && (
+        <div className={`border-b ${
+          selectedCompanyId
+            ? "border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/30"
+            : "border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30"
+        }`}>
+          <div className="flex items-center justify-between px-4 md:px-6 lg:px-8 h-10">
+            <div className="flex flex-col gap-0.5">
+              <span className={`text-sm font-semibold ${
+                selectedCompanyId
+                  ? "text-emerald-900 dark:text-emerald-200"
+                  : "text-amber-900 dark:text-amber-200"
+              }`}>
+                {selectedCompanyId ? (selectedCompanyName || "Grupo Econômico selecionado") : "⚠️ Nenhum Grupo Econômico selecionado!"}
+              </span>
+            </div>
+            {selectedCompanyId && (
+              <Badge variant="outline" className="border-emerald-300 bg-emerald-100 text-emerald-800 dark:border-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-200">
+                Ativo
+              </Badge>
+            )}
+          </div>
+        </div>
+      )}
     </>
   )
 }
@@ -186,10 +243,19 @@ function resolveCategoryIcon(categoryCode?: string) {
   }
 }
 
+interface NavDropdownItem {
+  label: string
+  color?: string
+  href?: string
+  icon: React.ReactNode
+  locked?: boolean
+  onClick?: () => void
+}
+
 interface NavDropdownProps {
   icon: React.ReactNode
   label: string
-  items: { label: string; color?: string; href?: string; icon: React.ReactNode; locked?: boolean }[]
+  items: NavDropdownItem[]
   locked?: boolean
 }
 
@@ -226,65 +292,95 @@ function NavDropdown({ icon, label, items, locked = false }: NavDropdownProps) {
         align="start"
         className="w-60 border-slate-200/60 dark:border-slate-800/60 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl shadow-xl shadow-slate-200/20 dark:shadow-black/20 rounded-xl p-1.5"
       >
-        {items.map((item) => (
-          <DropdownMenuItem
-            key={item.label}
-            disabled={item.locked}
-            className={`rounded-lg my-0.5 text-sm font-medium py-2.5 ${
-              item.locked
-                ? "cursor-not-allowed opacity-50 text-slate-400 dark:text-slate-600"
-                : `cursor-pointer ${item.color ? item.color : "text-slate-700 dark:text-slate-300"}`
-            }`}
-            asChild={!item.locked}
-          >
-            {item.locked ? (
-              <div className="flex items-center w-full justify-between">
-                <span className="flex items-center">
+        {items.map((item, index) => (
+          <React.Fragment key={item.label}>
+            {index === 1 && items[0].onClick && (
+              <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
+            )}
+            <DropdownMenuItem
+              disabled={item.locked}
+              className={`rounded-lg my-0.5 text-sm font-medium py-2.5 ${
+                item.locked
+                  ? "cursor-not-allowed opacity-50 text-slate-400 dark:text-slate-600"
+                  : `cursor-pointer ${item.color ? item.color : "text-slate-700 dark:text-slate-300"}`
+              }`}
+              asChild={!item.locked && !item.onClick}
+              onClick={item.onClick}
+            >
+              {item.locked ? (
+                <div className="flex items-center w-full justify-between">
+                  <span className="flex items-center">
+                    {item.icon}
+                    {item.label}
+                  </span>
+                  <Lock className="h-3 w-3 text-slate-400" />
+                </div>
+              ) : item.onClick ? (
+                <div className="flex items-center w-full">
                   {item.icon}
                   {item.label}
-                </span>
-                <Lock className="h-3 w-3 text-slate-400" />
-              </div>
-            ) : "href" in item && item.href ? (
-              <Link href={item.href} className="flex items-center w-full">
-                {item.icon}
-                {item.label}
-              </Link>
-            ) : (
-              <div className="flex items-center w-full">
-                {item.icon}
-                {item.label}
-              </div>
-            )}
-          </DropdownMenuItem>
+                </div>
+              ) : "href" in item && item.href ? (
+                <Link href={item.href} className="flex items-center w-full">
+                  {item.icon}
+                  {item.label}
+                </Link>
+              ) : (
+                <div className="flex items-center w-full">
+                  {item.icon}
+                  {item.label}
+                </div>
+              )}
+            </DropdownMenuItem>
+          </React.Fragment>
         ))}
       </DropdownMenuContent>
     </DropdownMenu>
   )
 }
 
-function MobileMenu({ menuItems }: { menuItems: NavigationCategory[] }) {
+function MobileMenu({ menuItems, onOpenCompanyModal }: { menuItems: NavigationCategory[]; onOpenCompanyModal: () => void }) {
   const [expandedCategories, setExpandedCategories] = React.useState<Record<string, boolean>>({
     Administrador: true,
     Configurações: true,
     Cadastros: true,
     Financeiro: true,
   })
-  const { signOut, canAccess } = useAuth()
+  const { signOut, canAccess, isRoot } = useAuth()
+  const { selectedCompanyId } = useCompany()
 
   const filteredMenuItems = menuItems
-    .map(category => ({
-      ...category,
-      icon: resolveCategoryIcon(category.code),
-      items: category.items.filter(item => {
+    .map(category => {
+      const filteredItems = category.items.filter(item => {
         if (item.locked) return true
         if (!item.permissionKey) return true
         return canAccess(item.permissionKey, 'ver')
       }).map(item => ({
         ...item,
         icon: React.createElement(resolveNavigationIcon(item.iconKey), { size: 16, className: "mr-2 text-slate-500" }),
-      })),
-    }))
+      }))
+
+      if (isRoot && category.code === "admin") {
+        return {
+          ...category,
+          icon: resolveCategoryIcon(category.code),
+          items: [
+            {
+              label: selectedCompanyId ? "Mudar Company" : "Selecionar Company",
+              icon: <Building2 size={16} className="mr-2 text-blue-500" />,
+              onClick: onOpenCompanyModal,
+            },
+            ...filteredItems,
+          ],
+        }
+      }
+
+      return {
+        ...category,
+        icon: resolveCategoryIcon(category.code),
+        items: filteredItems,
+      }
+    })
     .filter(category => category.items.length > 0)
 
   const toggleCategory = (category: string) => {
@@ -349,37 +445,47 @@ function MobileMenu({ menuItems }: { menuItems: NavigationCategory[] }) {
 
               {!isLocked && expandedCategories[category.label] && (
                 <div className="pl-4 mt-1 space-y-1">
-                  {category.items.map((item) => (
-                    <DropdownMenuItem
-                      key={item.label}
-                      disabled={item.locked}
-                      className={`rounded-lg my-0.5 text-sm font-medium ${
-                        item.locked
-                          ? "cursor-not-allowed opacity-50 text-slate-400 dark:text-slate-600"
-                          : "cursor-pointer text-slate-700 dark:text-slate-300"
-                      }`}
-                      asChild={!item.locked}
-                    >
-                      {item.locked ? (
-                        <div className="flex items-center justify-between w-full">
-                          <span className="flex items-center">
+                  {category.items.map((item, index) => (
+                    <React.Fragment key={item.label}>
+                      {index === 1 && (item as NavDropdownItem).onClick && (
+                        <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
+                      )}
+                      <DropdownMenuItem
+                        disabled={item.locked}
+                        className={`rounded-lg my-0.5 text-sm font-medium ${
+                          item.locked
+                            ? "cursor-not-allowed opacity-50 text-slate-400 dark:text-slate-600"
+                            : "cursor-pointer text-slate-700 dark:text-slate-300"
+                        }`}
+                        asChild={!item.locked && !(item as NavDropdownItem).onClick}
+                        onClick={(item as NavDropdownItem).onClick}
+                      >
+                        {item.locked ? (
+                          <div className="flex items-center justify-between w-full">
+                            <span className="flex items-center">
+                              {item.icon}
+                              {item.label}
+                            </span>
+                            <Lock className="h-3 w-3 text-slate-400" />
+                          </div>
+                        ) : (item as NavDropdownItem).onClick ? (
+                          <div className="flex items-center">
                             {item.icon}
                             {item.label}
-                          </span>
-                          <Lock className="h-3 w-3 text-slate-400" />
-                        </div>
-                      ) : "href" in item && item.href ? (
-                        <Link href={item.href} className="flex items-center">
-                          {item.icon}
-                          {item.label}
-                        </Link>
-                      ) : (
-                        <div className="flex items-center">
-                          {item.icon}
-                          {item.label}
-                        </div>
-                      )}
-                    </DropdownMenuItem>
+                          </div>
+                        ) : "href" in item && item.href ? (
+                          <Link href={item.href} className="flex items-center">
+                            {item.icon}
+                            {item.label}
+                          </Link>
+                        ) : (
+                          <div className="flex items-center">
+                            {item.icon}
+                            {item.label}
+                          </div>
+                        )}
+                      </DropdownMenuItem>
+                    </React.Fragment>
                   ))}
                 </div>
               )}
